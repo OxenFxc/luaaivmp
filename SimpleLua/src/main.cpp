@@ -10,17 +10,23 @@
 
 int main(int argc, char* argv[]) {
     if (argc < 3) {
-        std::cerr << "Usage: " << argv[0] << " <input_file> <output_file> [-vmp]\n";
+        std::cerr << "Usage: " << argv[0] << " <input_file> <output_file> [-vmp] [-pack] [-encrypt]\n";
         return 1;
     }
 
     std::string inputPath = argv[1];
     std::string outputPath = argv[2];
     bool useVMP = false;
+    bool pack = false;
+    bool encrypt = false;
 
     for (int i = 3; i < argc; ++i) {
         if (std::strcmp(argv[i], "-vmp") == 0) {
             useVMP = true;
+        } else if (std::strcmp(argv[i], "-pack") == 0) {
+            pack = true;
+        } else if (std::strcmp(argv[i], "-encrypt") == 0) {
+            encrypt = true;
         }
     }
 
@@ -61,7 +67,10 @@ int main(int argc, char* argv[]) {
             strategy = std::make_unique<DefaultStrategy>();
         }
 
-        LuaGenerator::generate(proto, outFile, *strategy);
+        if (pack) std::cout << "Packing enabled.\n";
+        if (encrypt) std::cout << "Encryption enabled.\n";
+
+        LuaGenerator::generate(proto, outFile, *strategy, pack, encrypt);
         outFile.close();
 
         std::cout << "Generated " << outputPath << "\n";

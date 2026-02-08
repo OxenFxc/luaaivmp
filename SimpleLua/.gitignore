@@ -1,4 +1,8 @@
-*.o
-simple_lua
 output.lua
 output2.lua
+simple_lua
+src/main.o
+src/Lexer.o
+src/Compiler.o
+src/LuaGenerator.o
+src/VMP/OpCodeStrategy.o

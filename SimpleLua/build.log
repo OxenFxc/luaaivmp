@@ -1,0 +1,2 @@
+g++ -std=c++17 -Wall -Wextra -Isrc -c src/LuaGenerator.cpp -o src/LuaGenerator.o
+g++ -std=c++17 -Wall -Wextra -Isrc -o simple_lua src/main.o src/Lexer.o src/Compiler.o src/LuaGenerator.o src/VMP/OpCodeStrategy.o
