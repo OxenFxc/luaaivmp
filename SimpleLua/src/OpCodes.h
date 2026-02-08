@@ -27,6 +27,8 @@ enum OpCode {
     OP_GETUPVAL,  // R(A) := UpValue[B]
     OP_SETUPVAL,  // UpValue[B] := R(A)
     OP_VARARG,    // R(A), ..., R(A+C-2) := varargs
+    OP_FORPREP,   // R(A)-=R(A+2); pc+=sBx
+    OP_FORLOOP,   // R(A)+=R(A+2); if cmp(R(A), R(A+1)) then { pc+=sBx; R(A+3)=R(A) }
     OP_PRINT,   // Custom: print(R(A))
     OP_RETURN   // return R(A) ... (or variable returns)
 };

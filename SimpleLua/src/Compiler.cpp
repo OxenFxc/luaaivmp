@@ -68,6 +68,8 @@ void Compiler::parseStatement() {
         parseIfStatement();
     } else if (match(TokenType::WHILE)) {
         parseWhileStatement();
+    } else if (match(TokenType::FOR)) {
+        parseForStatement();
     } else if (match(TokenType::FUNCTION)) {
         parseFunctionStatement();
     } else if (match(TokenType::RETURN)) {
@@ -269,12 +271,25 @@ void Compiler::parseIfStatement() {
 
     int jumpFalse = emitJump(OP_JMP_FALSE, condReg);
 
-    while (peek().type != TokenType::ELSE && peek().type != TokenType::END && peek().type != TokenType::END_OF_FILE) {
+    while (peek().type != TokenType::ELSEIF && peek().type != TokenType::ELSE && peek().type != TokenType::END && peek().type != TokenType::END_OF_FILE) {
         parseStatement();
     }
 
-    int jumpEnd = emitJump(OP_JMP);
+    std::vector<int> jumpEnds;
+    jumpEnds.push_back(emitJump(OP_JMP));
     patchJump(jumpFalse);
+
+    while (match(TokenType::ELSEIF)) {
+         int cond = parseExpression();
+         consume(TokenType::THEN, "Expect 'then'");
+         int jmpF = emitJump(OP_JMP_FALSE, cond);
+
+         while (peek().type != TokenType::ELSEIF && peek().type != TokenType::ELSE && peek().type != TokenType::END && peek().type != TokenType::END_OF_FILE) {
+             parseStatement();
+         }
+         jumpEnds.push_back(emitJump(OP_JMP));
+         patchJump(jmpF);
+    }
 
     if (match(TokenType::ELSE)) {
         while (peek().type != TokenType::END && peek().type != TokenType::END_OF_FILE) {
@@ -282,8 +297,8 @@ void Compiler::parseIfStatement() {
         }
     }
 
-    patchJump(jumpEnd);
     consume(TokenType::END, "Expect 'end' after if statement");
+    for (int j : jumpEnds) patchJump(j);
 }
 
 void Compiler::parseWhileStatement() {
@@ -302,6 +317,66 @@ void Compiler::parseWhileStatement() {
 
     patchJump(jumpFalse);
     consume(TokenType::END, "Expect 'end' after while loop");
+}
+
+void Compiler::parseForStatement() {
+    Token name = consume(TokenType::ID, "Expect variable name after 'for'");
+    consume(TokenType::ASSIGN, "Expect '=' after variable name");
+
+    int startReg = parseExpression();
+    consume(TokenType::COMMA, "Expect ',' after start value");
+    int limitReg = parseExpression();
+
+    int stepReg;
+    if (match(TokenType::COMMA)) {
+        stepReg = parseExpression();
+    } else {
+        stepReg = allocateRegister();
+        int oneIdx = addConstant(1.0);
+        emit(Instruction(OP_LOADK, stepReg, oneIdx));
+    }
+
+    consume(TokenType::DO, "Expect 'do' after for parameters");
+
+    int base = allocateRegister(); // index
+    allocateRegister(); // limit
+    allocateRegister(); // step
+    int varReg = allocateRegister(); // external variable
+
+    emit(Instruction(OP_MOVE, base, startReg, 0));
+    emit(Instruction(OP_MOVE, base + 1, limitReg, 0));
+    emit(Instruction(OP_MOVE, base + 2, stepReg, 0));
+
+    int oldReg = -1;
+    bool hadOld = false;
+    if (current->locals.count(name.value)) {
+        oldReg = current->locals[name.value];
+        hadOld = true;
+    }
+    current->locals[name.value] = varReg;
+
+    int loopStart = (int)current->proto->instructions.size();
+    emit(Instruction(OP_FORPREP, base, 0));
+
+    while (peek().type != TokenType::END && peek().type != TokenType::END_OF_FILE) {
+        parseStatement();
+    }
+    consume(TokenType::END, "Expect 'end' after for loop");
+
+    int loopEnd = (int)current->proto->instructions.size();
+    emit(Instruction(OP_FORLOOP, base, 0));
+
+    int prepOffset = loopEnd - loopStart - 1;
+    current->proto->instructions[loopStart].b = prepOffset;
+
+    int loopOffset = loopStart - loopEnd;
+    current->proto->instructions[loopEnd].b = loopOffset;
+
+    if (hadOld) {
+        current->locals[name.value] = oldReg;
+    } else {
+        current->locals.erase(name.value);
+    }
 }
 
 int Compiler::parseExpression() {

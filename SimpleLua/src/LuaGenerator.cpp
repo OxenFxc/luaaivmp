@@ -28,6 +28,8 @@ void LuaGenerator::generate(Prototype* proto, std::ostream& out) {
     out << "local OP_GETUPVAL = " << OP_GETUPVAL << "\n";
     out << "local OP_SETUPVAL = " << OP_SETUPVAL << "\n";
     out << "local OP_VARARG = " << OP_VARARG << "\n";
+    out << "local OP_FORPREP = " << OP_FORPREP << "\n";
+    out << "local OP_FORLOOP = " << OP_FORLOOP << "\n";
     out << "local OP_PRINT = " << OP_PRINT << "\n";
     out << "local OP_RETURN = " << OP_RETURN << "\n\n";
 
@@ -144,6 +146,18 @@ local function run_vm(closure, args, varargs)
                 stack[a + i - 1] = vargs[i]
             end
             if open_upvalues[a] then open_upvalues[a].val = stack[a] end
+        elseif op == OP_FORPREP then
+            stack[a] = stack[a] - stack[a+2]
+            pc = pc + b
+        elseif op == OP_FORLOOP then
+            local step = stack[a+2]
+            stack[a] = stack[a] + step
+            local idx = stack[a]
+            local limit = stack[a+1]
+            if (step > 0 and idx <= limit) or (step <= 0 and idx >= limit) then
+                pc = pc + b
+                stack[a+3] = idx
+            end
         elseif op == OP_CLOSURE then
             local p = protos[b]
             -- Check if upvalues exist (might be nil if no upvalues)

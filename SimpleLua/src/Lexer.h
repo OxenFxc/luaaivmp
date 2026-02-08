@@ -21,7 +21,7 @@ enum class TokenType {
     SEMICOLON,  // ;
 
     // Keywords
-    IF, THEN, ELSE, END, WHILE, DO, FUNCTION, RETURN,
+    IF, THEN, ELSE, ELSEIF, END, WHILE, DO, FUNCTION, RETURN, FOR, IN,
     AND, OR, NOT, NIL, TRUE, FALSE,
 
     // Symbols
