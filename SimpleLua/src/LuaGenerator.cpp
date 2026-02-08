@@ -44,7 +44,47 @@ void LuaGenerator::generate(Prototype* proto, std::ostream& out) {
 local _G = _G -- Global environment
 local unpack = table.unpack or unpack
 
-local function run_vm(closure, args, varargs)
+-- Forward declaration of run_vm
+local run_vm
+
+-- Helper to wrap a closure table into a native Lua function
+local function wrap_if_needed(val)
+    if type(val) == "table" and val.type == "closure" then
+        if not val.wrapper then
+            val.wrapper = function(...)
+                local args = {...}
+                local proto = val.proto
+                local numParams = proto.numParams or 0
+                local fArgs = {}
+                local vArgs = {}
+                local n = select('#', ...)
+
+                for i = 1, n do
+                    if i <= numParams then
+                        fArgs[i] = args[i]
+                    else
+                        table.insert(vArgs, args[i])
+                    end
+                end
+                vArgs.n = n - numParams
+                if vArgs.n < 0 then vArgs.n = 0 end
+
+                return run_vm(val, fArgs, vArgs)
+            end
+        end
+        return val.wrapper
+    end
+    return val
+end
+
+-- Metatable for closures to support pcall/xpcall(arg1)
+local closure_mt = {
+    __call = function(t, ...)
+        return wrap_if_needed(t)(...)
+    end
+}
+
+run_vm = function(closure, args, varargs)
     local proto = closure.proto
     local stack = {}
 
@@ -223,6 +263,7 @@ local function run_vm(closure, args, varargs)
                 end
             end
             stack[a] = { proto = p, upvalues = new_ups, type = "closure" }
+            setmetatable(stack[a], closure_mt)
             if open_upvalues[a] then open_upvalues[a].val = stack[a] end
 
         elseif op == OP_CALL then
@@ -263,6 +304,15 @@ local function run_vm(closure, args, varargs)
                    if open_upvalues[a] then open_upvalues[a].val = stack[a] end
                 end
             elseif type(func) == "function" then
+                 -- Handle native functions that require function arguments (not callable tables)
+                 if func == table.sort then
+                     if numArgs >= 2 then callArgs[2] = wrap_if_needed(callArgs[2]) end
+                 elseif func == xpcall then
+                     if numArgs >= 2 then callArgs[2] = wrap_if_needed(callArgs[2]) end
+                 elseif func == string.gsub then
+                     if numArgs >= 3 then callArgs[3] = wrap_if_needed(callArgs[3]) end
+                 end
+
                  local results = { func(unpack(callArgs, 1, numArgs)) }
                  local numResults = c - 1
                  if numResults > 0 then
