@@ -1,6 +1,6 @@
 #include "Compiler.h"
 #include <stdexcept>
-#include <iostream>
+#include <algorithm>
 
 Compiler::Compiler() : currentTokenIdx(0), current(nullptr) {}
 
@@ -42,19 +42,37 @@ Token Compiler::consume(TokenType type, const std::string& errorMessage) {
     if (peek().type == type) {
         return advance();
     }
-    throw std::runtime_error(errorMessage);
+    throw std::runtime_error(errorMessage + ". Got: " + peek().value + " at line " + std::to_string(peek().line));
 }
 
 void Compiler::parseStatement() {
-    if (match(TokenType::LOCAL)) {
-        Token name = consume(TokenType::ID, "Expect variable name after 'local'");
-        consume(TokenType::ASSIGN, "Expect '=' after variable name");
-        int exprReg = parseExpression();
+    parseStatementImpl();
+    current->allocatedRegs.reset();
+    for (const auto& kv : current->locals) {
+        current->allocatedRegs[kv.second] = true;
+    }
+}
 
-        current->locals[name.value] = allocateRegister();
-        int varReg = current->locals[name.value];
-        if (varReg != exprReg) {
-             emit(Instruction(OP_MOVE, varReg, exprReg, 0));
+void Compiler::parseStatementImpl() {
+    if (match(TokenType::LOCAL)) {
+        if (match(TokenType::FUNCTION)) {
+            Token name = consume(TokenType::ID, "Expect function name after 'local function'");
+            current->locals[name.value] = allocateRegister();
+            int varReg = current->locals[name.value];
+            int funcReg = parseFunctionExpression();
+            if (varReg != funcReg) {
+                emit(Instruction(OP_MOVE, varReg, funcReg, 0));
+            }
+        } else {
+            Token name = consume(TokenType::ID, "Expect variable name after 'local'");
+            consume(TokenType::ASSIGN, "Expect '=' after variable name");
+            int exprReg = parseExpression();
+
+            current->locals[name.value] = allocateRegister();
+            int varReg = current->locals[name.value];
+            if (varReg != exprReg) {
+                 emit(Instruction(OP_MOVE, varReg, exprReg, 0));
+            }
         }
 
         if (match(TokenType::SEMICOLON)) {}
@@ -78,73 +96,105 @@ void Compiler::parseStatement() {
         Token t = peek();
         if (t.type == TokenType::ID) {
             advance();
+            // Direct assignment: ID = expr
             if (match(TokenType::ASSIGN)) {
                 int exprReg = parseExpression();
                 parseVariable(t, true, exprReg);
                 if (match(TokenType::SEMICOLON)) {}
                 return;
-            } else if (match(TokenType::LPAREN)) {
-                int funcReg = allocateRegister();
+            }
 
-                int localReg = resolveLocal(current, t.value);
-                if (localReg != -1) {
-                    emit(Instruction(OP_MOVE, funcReg, localReg, 0));
+            // Prefix expression (l-value or call)
+            int valReg;
+            int localReg = resolveLocal(current, t.value);
+            if (localReg != -1) {
+                valReg = localReg;
+            } else {
+                int upvalIdx = resolveUpvalue(current, t.value);
+                if (upvalIdx != -1) {
+                    valReg = allocateRegister();
+                    emit(Instruction(OP_GETUPVAL, valReg, upvalIdx, 0));
                 } else {
-                    int upvalIdx = resolveUpvalue(current, t.value);
-                    if (upvalIdx != -1) {
-                        emit(Instruction(OP_GETUPVAL, funcReg, upvalIdx, 0));
-                    } else {
-                        int nameIdx = addConstant(t.value);
-                        emit(Instruction(OP_GETGLOBAL, funcReg, nameIdx));
+                    valReg = allocateRegister();
+                    int nameIdx = addConstant(t.value);
+                    emit(Instruction(OP_GETGLOBAL, valReg, nameIdx));
+                }
+            }
+
+            while (true) {
+                if (match(TokenType::DOT)) {
+                    Token key = consume(TokenType::ID, "Expect key");
+                    if (match(TokenType::ASSIGN)) {
+                        int rVal = parseExpression();
+                        int keyIdx = addConstant(key.value);
+                        int keyReg = allocateRegister();
+                        emit(Instruction(OP_LOADK, keyReg, keyIdx));
+                        emit(Instruction(OP_SETTABLE, valReg, keyReg, rVal));
+                        if (match(TokenType::SEMICOLON)) {}
+                        return;
                     }
+                    int keyIdx = addConstant(key.value);
+                    int keyReg = allocateRegister();
+                    emit(Instruction(OP_LOADK, keyReg, keyIdx));
+                    int resReg = allocateRegister();
+                    emit(Instruction(OP_GETTABLE, resReg, valReg, keyReg));
+                    valReg = resReg;
+                } else if (match(TokenType::LBRACKET)) {
+                    int keyReg = parseExpression();
+                    consume(TokenType::RBRACKET, "Expect ']'");
+                    if (match(TokenType::ASSIGN)) {
+                        int rVal = parseExpression();
+                        emit(Instruction(OP_SETTABLE, valReg, keyReg, rVal));
+                        if (match(TokenType::SEMICOLON)) {}
+                        return;
+                    }
+                    int resReg = allocateRegister();
+                    emit(Instruction(OP_GETTABLE, resReg, valReg, keyReg));
+                    valReg = resReg;
+                } else if (match(TokenType::LPAREN)) {
+                    std::vector<int> args;
+                    if (!match(TokenType::RPAREN)) {
+                        do {
+                            args.push_back(parseExpression());
+                        } while (match(TokenType::COMMA));
+                        consume(TokenType::RPAREN, "Expect ')' after arguments");
+                    }
+                    int base = valReg;
+                    for (size_t i = 0; i < args.size(); ++i) {
+                        emit(Instruction(OP_MOVE, base + 1 + i, args[i], 0));
+                    }
+                    emit(Instruction(OP_CALL, base, args.size() + 1, 1));
+                    if (match(TokenType::SEMICOLON)) {}
+                    return;
+                } else if (match(TokenType::COLON)) {
+                    Token method = consume(TokenType::ID, "Expect method name");
+                    consume(TokenType::LPAREN, "Expect '('");
+                    int keyIdx = addConstant(method.value);
+                    int keyReg = allocateRegister();
+                    emit(Instruction(OP_LOADK, keyReg, keyIdx));
+
+                    int funcReg = allocateRegister();
+                    emit(Instruction(OP_GETTABLE, funcReg, valReg, keyReg));
+
+                    std::vector<int> args;
+                    args.push_back(valReg); // self
+                    if (!match(TokenType::RPAREN)) {
+                        do {
+                            args.push_back(parseExpression());
+                        } while (match(TokenType::COMMA));
+                        consume(TokenType::RPAREN, "Expect ')'");
+                    }
+
+                    int base = funcReg;
+                    for (size_t i = 0; i < args.size(); ++i) {
+                        emit(Instruction(OP_MOVE, base + 1 + i, args[i], 0));
+                    }
+                    emit(Instruction(OP_CALL, base, args.size() + 1, 1));
+                    if (match(TokenType::SEMICOLON)) {}
+                    return;
+                } else {
+                    throw std::runtime_error("Unexpected token in statement: " + peek().value);
                 }
-
-                std::vector<int> args;
-                if (!match(TokenType::RPAREN)) {
-                    do {
-                        args.push_back(parseExpression());
-                    } while (match(TokenType::COMMA));
-                    consume(TokenType::RPAREN, "Expect ')' after arguments");
-                }
-
-                int base = funcReg;
-                for (size_t i = 0; i < args.size(); ++i) {
-                    emit(Instruction(OP_MOVE, base + 1 + i, args[i], 0));
-                }
-                emit(Instruction(OP_CALL, base, args.size() + 1, 1));
-
-                if (match(TokenType::SEMICOLON)) {}
-                return;
-            } else if (match(TokenType::DOT)) {
-                 Token key = consume(TokenType::ID, "Expect key");
-                 consume(TokenType::ASSIGN, "Expect '='");
-                 int valReg = parseExpression();
-
-                 int tableReg = allocateRegister();
-
-                 int localReg = resolveLocal(current, t.value);
-                 if (localReg != -1) {
-                     emit(Instruction(OP_MOVE, tableReg, localReg, 0));
-                 } else {
-                     int upvalIdx = resolveUpvalue(current, t.value);
-                     if (upvalIdx != -1) {
-                         emit(Instruction(OP_GETUPVAL, tableReg, upvalIdx, 0));
-                     } else {
-                         int nameIdx = addConstant(t.value);
-                         emit(Instruction(OP_GETGLOBAL, tableReg, nameIdx));
-                     }
-                 }
-
-                 int keyReg = allocateRegister();
-                 int keyIdx = addConstant(key.value);
-                 emit(Instruction(OP_LOADK, keyReg, keyIdx));
-
-                 emit(Instruction(OP_SETTABLE, tableReg, keyReg, valReg));
-                 if (match(TokenType::SEMICOLON)) {}
-                 return;
-            } else if (match(TokenType::COLON)) {
-                 // Assignment to method? Not supported (obj:method = val)
-                 throw std::runtime_error("Cannot assign to method call syntax");
             }
         }
         throw std::runtime_error("Unexpected token: " + peek().value);
@@ -265,15 +315,45 @@ void Compiler::parseReturnStatement() {
     if (match(TokenType::SEMICOLON)) {}
 }
 
+std::vector<std::string> Compiler::snapshotLocals() {
+    std::vector<std::string> names;
+    names.reserve(current->locals.size());
+    for (const auto& kv : current->locals) {
+        names.push_back(kv.first);
+    }
+    return names;
+}
+
+void Compiler::restoreLocals(const std::vector<std::string>& snapshot) {
+    auto it = current->locals.begin();
+    while (it != current->locals.end()) {
+        bool found = false;
+        for (const auto& name : snapshot) {
+            if (name == it->first) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            current->allocatedRegs[it->second] = false;
+            it = current->locals.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
 void Compiler::parseIfStatement() {
     int condReg = parseExpression();
     consume(TokenType::THEN, "Expect 'then' after condition");
 
     int jumpFalse = emitJump(OP_JMP_FALSE, condReg);
 
+    std::vector<std::string> snapshot = snapshotLocals();
     while (peek().type != TokenType::ELSEIF && peek().type != TokenType::ELSE && peek().type != TokenType::END && peek().type != TokenType::END_OF_FILE) {
         parseStatement();
     }
+    restoreLocals(snapshot);
 
     std::vector<int> jumpEnds;
     jumpEnds.push_back(emitJump(OP_JMP));
@@ -284,17 +364,22 @@ void Compiler::parseIfStatement() {
          consume(TokenType::THEN, "Expect 'then'");
          int jmpF = emitJump(OP_JMP_FALSE, cond);
 
+         std::vector<std::string> loopSnapshot = snapshotLocals();
          while (peek().type != TokenType::ELSEIF && peek().type != TokenType::ELSE && peek().type != TokenType::END && peek().type != TokenType::END_OF_FILE) {
              parseStatement();
          }
+         restoreLocals(loopSnapshot);
+
          jumpEnds.push_back(emitJump(OP_JMP));
          patchJump(jmpF);
     }
 
     if (match(TokenType::ELSE)) {
+        std::vector<std::string> elseSnapshot = snapshotLocals();
         while (peek().type != TokenType::END && peek().type != TokenType::END_OF_FILE) {
             parseStatement();
         }
+        restoreLocals(elseSnapshot);
     }
 
     consume(TokenType::END, "Expect 'end' after if statement");
@@ -309,9 +394,11 @@ void Compiler::parseWhileStatement() {
 
     int jumpFalse = emitJump(OP_JMP_FALSE, condReg);
 
+    std::vector<std::string> snapshot = snapshotLocals();
     while (peek().type != TokenType::END && peek().type != TokenType::END_OF_FILE) {
         parseStatement();
     }
+    restoreLocals(snapshot);
 
     emit(Instruction(OP_JMP, 0, loopStart - (int)current->proto->instructions.size() - 1));
 
@@ -343,6 +430,11 @@ void Compiler::parseForStatement() {
     allocateRegister(); // step
     int varReg = allocateRegister(); // external variable
 
+    // Lock registers for loop duration
+    current->locals["(base " + std::to_string(base) + ")"] = base;
+    current->locals["(limit " + std::to_string(base) + ")"] = base + 1;
+    current->locals["(step " + std::to_string(base) + ")"] = base + 2;
+
     emit(Instruction(OP_MOVE, base, startReg, 0));
     emit(Instruction(OP_MOVE, base + 1, limitReg, 0));
     emit(Instruction(OP_MOVE, base + 2, stepReg, 0));
@@ -358,9 +450,12 @@ void Compiler::parseForStatement() {
     int loopStart = (int)current->proto->instructions.size();
     emit(Instruction(OP_FORPREP, base, 0));
 
+    std::vector<std::string> snapshot = snapshotLocals();
     while (peek().type != TokenType::END && peek().type != TokenType::END_OF_FILE) {
         parseStatement();
     }
+    restoreLocals(snapshot);
+
     consume(TokenType::END, "Expect 'end' after for loop");
 
     int loopEnd = (int)current->proto->instructions.size();
@@ -375,8 +470,19 @@ void Compiler::parseForStatement() {
     if (hadOld) {
         current->locals[name.value] = oldReg;
     } else {
+        current->allocatedRegs[current->locals[name.value]] = false;
         current->locals.erase(name.value);
     }
+    // Also free varReg if we restored oldReg?
+    if (hadOld) current->allocatedRegs[varReg] = false;
+
+    // Free locked registers
+    current->allocatedRegs[base] = false;
+    current->allocatedRegs[base + 1] = false;
+    current->allocatedRegs[base + 2] = false;
+    current->locals.erase("(base " + std::to_string(base) + ")");
+    current->locals.erase("(limit " + std::to_string(base) + ")");
+    current->locals.erase("(step " + std::to_string(base) + ")");
 }
 
 int Compiler::parseExpression() {
@@ -696,7 +802,16 @@ int Compiler::parseTableConstructor() {
 
     int arrayIdx = 1;
 
+    // Snapshot allocated registers to reuse them for each element
+    std::bitset<256> snapshot = current->allocatedRegs;
+
     do {
+        if (peek().type == TokenType::RBRACE) break;
+
+        // Reset registers (except tableReg and previous allocations)
+        current->allocatedRegs = snapshot;
+        current->allocatedRegs[tableReg] = true;
+
         if (match(TokenType::LBRACKET)) {
              int keyReg = parseExpression();
              consume(TokenType::RBRACKET, "Expect ']'");
@@ -706,15 +821,6 @@ int Compiler::parseTableConstructor() {
         } else if (peek().type == TokenType::ID) {
              Token t = peek();
 
-             // Lookahead using simple heuristic:
-             // If ID is followed by ASSIGN, it's a key.
-             // But I can't lookahead effectively without lexer support.
-             // HACK: Consume and backtrack if needed?
-             // Since I can't backtrack efficiently, I'll rely on the rule:
-             // If we are in constructor, ID = expr is a Field.
-             // ID alone or ID op ... is Expr (Array).
-
-             // Let's consume ID.
              advance();
              if (match(TokenType::ASSIGN)) {
                  int valReg = parseExpression();
@@ -723,8 +829,7 @@ int Compiler::parseTableConstructor() {
                  emit(Instruction(OP_LOADK, keyReg, keyIdx));
                  emit(Instruction(OP_SETTABLE, tableReg, keyReg, valReg));
              } else {
-                 // It was part of expression.
-                 currentTokenIdx--; // Backtrack 1 token
+                 currentTokenIdx--;
                  int valReg = parseExpression();
                  int keyIdx = addConstant((double)arrayIdx++);
                  int keyReg = allocateRegister();
@@ -801,8 +906,11 @@ void Compiler::patchJump(int instructionIndex) {
 }
 
 int Compiler::allocateRegister() {
-    if (current->nextReg >= 256) {
-        throw std::runtime_error("Stack overflow: too many registers used");
+    for (int i = 0; i < 256; ++i) {
+        if (!current->allocatedRegs[i]) {
+            current->allocatedRegs[i] = true;
+            return i;
+        }
     }
-    return current->nextReg++;
+    throw std::runtime_error("Stack overflow: too many registers used");
 }
