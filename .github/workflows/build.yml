@@ -6,10 +6,42 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Platform to build for'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+        - all
+        - linux
+        - windows
+        - android
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux
+            compiler: g++
+            artifact_name: simple_lua
+            asset_name: simple_lua
+            cxx_flags: "-std=c++17 -Wall -Wextra -Isrc"
+          - target: windows
+            compiler: x86_64-w64-mingw32-g++
+            artifact_name: simple_lua.exe
+            asset_name: simple_lua.exe
+            cxx_flags: "-std=c++17 -Wall -Wextra -Isrc -static"
+          - target: android
+            compiler: android-clang
+            artifact_name: simple_lua_android
+            asset_name: simple_lua_android
+            cxx_flags: "-std=c++17 -Wall -Wextra -Isrc -static-libstdc++"
+
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == matrix.target }}
 
     defaults:
       run:
@@ -18,37 +50,60 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Install ccache
+    - name: Install dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y ccache
+        if [ "${{ matrix.target }}" == "windows" ]; then
+          sudo apt-get install -y mingw-w64
+        fi
+
+    - name: Setup Android NDK
+      if: matrix.target == 'android'
+      uses: nttld/setup-ndk@v1
+      with:
+        ndk-version: r25c
+        add-to-path: true
+
+    - name: Configure Android Compiler
+      if: matrix.target == 'android'
+      run: |
+        echo "ANDROID_CXX=aarch64-linux-android29-clang++" >> $GITHUB_ENV
 
     - name: Cache ccache
       uses: actions/cache@v4
       with:
         path: ~/.ccache
-        key: ${{ runner.os }}-ccache-${{ github.sha }}
+        key: ${{ runner.os }}-${{ matrix.target }}-ccache-${{ github.sha }}
         restore-keys: |
-          ${{ runner.os }}-ccache-
+          ${{ runner.os }}-${{ matrix.target }}-ccache-
 
     - name: Build
       run: |
         export PATH="/usr/lib/ccache:$PATH"
-        make CXX="ccache g++"
+        COMPILER="${{ matrix.compiler }}"
+        if [ "${{ matrix.target }}" == "android" ]; then
+          COMPILER="$ANDROID_CXX"
+        fi
+
+        # Verify compiler exists (skip for android since it's dynamically set)
+        if [ "${{ matrix.target }}" != "android" ] && ! command -v $COMPILER &> /dev/null; then
+             echo "Compiler $COMPILER not found"
+             exit 1
+        fi
+
+        make TARGET="${{ matrix.artifact_name }}" CXX="ccache $COMPILER" CXXFLAGS="${{ matrix.cxx_flags }}"
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: simple_lua
-        path: SimpleLua/simple_lua
+        name: ${{ matrix.asset_name }}
+        path: SimpleLua/${{ matrix.artifact_name }}
 
     - name: Upload Release Asset
       if: github.event_name == 'release'
       uses: softprops/action-gh-release@v1
       with:
-        files: SimpleLua/simple_lua
+        files: SimpleLua/${{ matrix.artifact_name }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Clean Build Artifacts
-      run: make clean
