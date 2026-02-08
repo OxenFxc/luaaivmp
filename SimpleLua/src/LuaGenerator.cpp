@@ -50,7 +50,8 @@ local function run_vm(closure, args, varargs)
 
     -- Initialize args
     if args then
-        for i = 1, #args do
+        local numParams = proto.numParams or 0
+        for i = 1, numParams do
             stack[i-1] = args[i]
         end
     end
@@ -145,7 +146,7 @@ local function run_vm(closure, args, varargs)
         elseif op == OP_VARARG then
             -- R(A) ... R(A+C-2) = varargs
             local n = c - 1
-            if n < 0 then n = #vargs end -- All varargs? B=0.
+            if n < 0 then n = vargs.n or #vargs end -- All varargs? B=0.
             -- Using C to determine how many
             -- If C=2, we want 1.
             for i = 1, n do
@@ -207,13 +208,18 @@ local function run_vm(closure, args, varargs)
                 local fixedParams = func.proto.numParams or 0
                 local fArgs = {}
                 local vArgs = {}
-                for i = 1, #callArgs do
+                local fCount = 0
+                local vCount = 0
+                for i = 1, numArgs do
                     if i <= fixedParams then
-                        table.insert(fArgs, callArgs[i])
+                        fCount = fCount + 1
+                        fArgs[fCount] = callArgs[i]
                     else
-                        table.insert(vArgs, callArgs[i])
+                        vCount = vCount + 1
+                        vArgs[vCount] = callArgs[i]
                     end
                 end
+                vArgs.n = vCount
 
                 local results = run_vm(func, fArgs, vArgs)
                 local numResults = c - 1
@@ -222,7 +228,7 @@ local function run_vm(closure, args, varargs)
                    if open_upvalues[a] then open_upvalues[a].val = stack[a] end
                 end
             elseif type(func) == "function" then
-                 local results = { func(table.unpack(callArgs)) }
+                 local results = { func(table.unpack(callArgs, 1, numArgs)) }
                  local numResults = c - 1
                  if numResults > 0 then
                      for i = 1, numResults do
@@ -241,11 +247,10 @@ local function run_vm(closure, args, varargs)
                 if mt and mt.__call then
                     -- call mt.__call(func, ...)
                     local metaArgs = {func}
-                    for i = 1, #callArgs do
-                        local arg = callArgs[i]
-                        table.insert(metaArgs, arg)
+                    for i = 1, numArgs do
+                        metaArgs[i + 1] = callArgs[i]
                     end
-                    local res = mt.__call(table.unpack(metaArgs))
+                    local res = mt.__call(table.unpack(metaArgs, 1, numArgs + 1))
                      if c - 1 > 0 then
                          stack[a] = res
                          if open_upvalues[a] then open_upvalues[a].val = stack[a] end
