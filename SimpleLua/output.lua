@@ -29,6 +29,7 @@ local OP_PRINT = 27
 local OP_RETURN = 28
 
 local main_proto = {
+  numParams = 0,
   constants = {
     [0] = 1,
     [1] = 2,
@@ -69,6 +70,7 @@ local main_proto = {
   },
   protos = {
     [0] = {
+  numParams = 0,
   constants = {
   },
   code = {
