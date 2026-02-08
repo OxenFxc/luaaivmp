@@ -20,30 +20,49 @@ on:
         - android
 
 jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - id: set-matrix
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            PLATFORM="${{ inputs.platform }}"
+          else
+            PLATFORM="all"
+          fi
+
+          # Define configurations as JSON objects
+          LINUX='{"target": "linux", "compiler": "g++", "artifact_name": "simple_lua", "asset_name": "simple_lua", "cxx_flags": "-std=c++17 -Wall -Wextra -Isrc"}'
+          WINDOWS='{"target": "windows", "compiler": "x86_64-w64-mingw32-g++", "artifact_name": "simple_lua.exe", "asset_name": "simple_lua.exe", "cxx_flags": "-std=c++17 -Wall -Wextra -Isrc -static"}'
+          ANDROID='{"target": "android", "compiler": "android-clang", "artifact_name": "simple_lua_android", "asset_name": "simple_lua_android", "cxx_flags": "-std=c++17 -Wall -Wextra -Isrc -static-libstdc++"}'
+
+          MATRIX_INCLUDE=""
+
+          if [ "$PLATFORM" == "all" ] || [ "$PLATFORM" == "linux" ]; then
+            MATRIX_INCLUDE="$LINUX"
+          fi
+
+          if [ "$PLATFORM" == "all" ] || [ "$PLATFORM" == "windows" ]; then
+            if [ -n "$MATRIX_INCLUDE" ]; then MATRIX_INCLUDE="$MATRIX_INCLUDE,"; fi
+            MATRIX_INCLUDE="$MATRIX_INCLUDE$WINDOWS"
+          fi
+
+          if [ "$PLATFORM" == "all" ] || [ "$PLATFORM" == "android" ]; then
+             if [ -n "$MATRIX_INCLUDE" ]; then MATRIX_INCLUDE="$MATRIX_INCLUDE,"; fi
+             MATRIX_INCLUDE="$MATRIX_INCLUDE$ANDROID"
+          fi
+
+          echo "matrix={\"include\":[$MATRIX_INCLUDE]}" >> $GITHUB_OUTPUT
+
   build:
+    needs: setup
     name: Build ${{ matrix.target }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - target: linux
-            compiler: g++
-            artifact_name: simple_lua
-            asset_name: simple_lua
-            cxx_flags: "-std=c++17 -Wall -Wextra -Isrc"
-          - target: windows
-            compiler: x86_64-w64-mingw32-g++
-            artifact_name: simple_lua.exe
-            asset_name: simple_lua.exe
-            cxx_flags: "-std=c++17 -Wall -Wextra -Isrc -static"
-          - target: android
-            compiler: android-clang
-            artifact_name: simple_lua_android
-            asset_name: simple_lua_android
-            cxx_flags: "-std=c++17 -Wall -Wextra -Isrc -static-libstdc++"
-
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == matrix.target }}
+      matrix: ${{ fromJson(needs.setup.outputs.matrix) }}
 
     defaults:
       run:
