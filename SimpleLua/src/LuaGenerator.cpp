@@ -1,46 +1,73 @@
 #include "LuaGenerator.h"
 #include <vector>
+#include <sstream>
+#include <iomanip>
+#include <cctype>
 
-void LuaGenerator::generate(Prototype* proto, std::ostream& out, const OpCodeStrategy& strategy) {
+// Helper prototypes
+static std::string encryptString(const std::string& s);
+static std::string encryptInstruction(int op, int a, int b, int c, int pc);
+static std::string minify(std::string code);
+
+void LuaGenerator::generate(Prototype* proto, std::ostream& out, const OpCodeStrategy& strategy, bool pack, bool encrypt) {
+    std::stringstream ss;
+
     // 1. Opcodes definitions
-    out << "local OP_MOVE = " << strategy.get(OP_MOVE) << "\n";
-    out << "local OP_LOADK = " << strategy.get(OP_LOADK) << "\n";
-    out << "local OP_ADD = " << strategy.get(OP_ADD) << "\n";
-    out << "local OP_SUB = " << strategy.get(OP_SUB) << "\n";
-    out << "local OP_MUL = " << strategy.get(OP_MUL) << "\n";
-    out << "local OP_DIV = " << strategy.get(OP_DIV) << "\n";
-    out << "local OP_IDIV = " << strategy.get(OP_IDIV) << "\n";
-    out << "local OP_MOD = " << strategy.get(OP_MOD) << "\n";
-    out << "local OP_CONCAT = " << strategy.get(OP_CONCAT) << "\n";
-    out << "local OP_LEN = " << strategy.get(OP_LEN) << "\n";
-    out << "local OP_NOT = " << strategy.get(OP_NOT) << "\n";
-    out << "local OP_EQ = " << strategy.get(OP_EQ) << "\n";
-    out << "local OP_LT = " << strategy.get(OP_LT) << "\n";
-    out << "local OP_LE = " << strategy.get(OP_LE) << "\n";
-    out << "local OP_JMP = " << strategy.get(OP_JMP) << "\n";
-    out << "local OP_JMP_FALSE = " << strategy.get(OP_JMP_FALSE) << "\n";
-    out << "local OP_GETGLOBAL = " << strategy.get(OP_GETGLOBAL) << "\n";
-    out << "local OP_SETGLOBAL = " << strategy.get(OP_SETGLOBAL) << "\n";
-    out << "local OP_NEWTABLE = " << strategy.get(OP_NEWTABLE) << "\n";
-    out << "local OP_GETTABLE = " << strategy.get(OP_GETTABLE) << "\n";
-    out << "local OP_SETTABLE = " << strategy.get(OP_SETTABLE) << "\n";
-    out << "local OP_CALL = " << strategy.get(OP_CALL) << "\n";
-    out << "local OP_CLOSURE = " << strategy.get(OP_CLOSURE) << "\n";
-    out << "local OP_GETUPVAL = " << strategy.get(OP_GETUPVAL) << "\n";
-    out << "local OP_SETUPVAL = " << strategy.get(OP_SETUPVAL) << "\n";
-    out << "local OP_VARARG = " << strategy.get(OP_VARARG) << "\n";
-    out << "local OP_FORPREP = " << strategy.get(OP_FORPREP) << "\n";
-    out << "local OP_FORLOOP = " << strategy.get(OP_FORLOOP) << "\n";
-    out << "local OP_TFORCALL = " << strategy.get(OP_TFORCALL) << "\n";
-    out << "local OP_TFORLOOP = " << strategy.get(OP_TFORLOOP) << "\n";
-    out << "local OP_RETURN = " << strategy.get(OP_RETURN) << "\n\n";
+    ss << "local OP_MOVE = " << strategy.get(OP_MOVE) << "\n";
+    ss << "local OP_LOADK = " << strategy.get(OP_LOADK) << "\n";
+    ss << "local OP_ADD = " << strategy.get(OP_ADD) << "\n";
+    ss << "local OP_SUB = " << strategy.get(OP_SUB) << "\n";
+    ss << "local OP_MUL = " << strategy.get(OP_MUL) << "\n";
+    ss << "local OP_DIV = " << strategy.get(OP_DIV) << "\n";
+    ss << "local OP_IDIV = " << strategy.get(OP_IDIV) << "\n";
+    ss << "local OP_MOD = " << strategy.get(OP_MOD) << "\n";
+    ss << "local OP_CONCAT = " << strategy.get(OP_CONCAT) << "\n";
+    ss << "local OP_LEN = " << strategy.get(OP_LEN) << "\n";
+    ss << "local OP_NOT = " << strategy.get(OP_NOT) << "\n";
+    ss << "local OP_EQ = " << strategy.get(OP_EQ) << "\n";
+    ss << "local OP_LT = " << strategy.get(OP_LT) << "\n";
+    ss << "local OP_LE = " << strategy.get(OP_LE) << "\n";
+    ss << "local OP_JMP = " << strategy.get(OP_JMP) << "\n";
+    ss << "local OP_JMP_FALSE = " << strategy.get(OP_JMP_FALSE) << "\n";
+    ss << "local OP_GETGLOBAL = " << strategy.get(OP_GETGLOBAL) << "\n";
+    ss << "local OP_SETGLOBAL = " << strategy.get(OP_SETGLOBAL) << "\n";
+    ss << "local OP_NEWTABLE = " << strategy.get(OP_NEWTABLE) << "\n";
+    ss << "local OP_GETTABLE = " << strategy.get(OP_GETTABLE) << "\n";
+    ss << "local OP_SETTABLE = " << strategy.get(OP_SETTABLE) << "\n";
+    ss << "local OP_CALL = " << strategy.get(OP_CALL) << "\n";
+    ss << "local OP_CLOSURE = " << strategy.get(OP_CLOSURE) << "\n";
+    ss << "local OP_GETUPVAL = " << strategy.get(OP_GETUPVAL) << "\n";
+    ss << "local OP_SETUPVAL = " << strategy.get(OP_SETUPVAL) << "\n";
+    ss << "local OP_VARARG = " << strategy.get(OP_VARARG) << "\n";
+    ss << "local OP_FORPREP = " << strategy.get(OP_FORPREP) << "\n";
+    ss << "local OP_FORLOOP = " << strategy.get(OP_FORLOOP) << "\n";
+    ss << "local OP_TFORCALL = " << strategy.get(OP_TFORCALL) << "\n";
+    ss << "local OP_TFORLOOP = " << strategy.get(OP_TFORLOOP) << "\n";
+    ss << "local OP_RETURN = " << strategy.get(OP_RETURN) << "\n\n";
 
-    out << "local main_proto = ";
-    generateProto(proto, out, 0, strategy);
-    out << "\n";
+    if (encrypt) {
+        ss << R"(
+local function decrypt_string(t)
+    local s = {}
+    for i, b in ipairs(t) do
+        s[i] = string.char(b ~ 0xAA)
+    end
+    return table.concat(s)
+end
 
-    // 4. VM Logic
-    out << R"(
+local function decrypt_instruction(t, pc)
+    local key = 0xDEADBEEF ~ pc
+    return { t[1] ~ key, t[2] ~ key, t[3] ~ key, t[4] ~ key }
+end
+)";
+    }
+
+    ss << "local main_proto = ";
+    generateProto(proto, ss, 0, strategy, encrypt);
+    ss << "\n";
+
+    // 4. VM Logic - Part 1
+    ss << R"(
 local _G = _G -- Global environment
 local unpack = table.unpack or unpack
 
@@ -108,8 +135,17 @@ run_vm = function(closure, args, varargs)
     local upvalues = closure.upvalues or {}
 
     while pc <= #code do
-        local inst = code[pc]
-        pc = pc + 1
+)";
+
+    // VM Logic - Fetch Instruction
+    if (encrypt) {
+        ss << "        local inst = decrypt_instruction(code[pc], pc)\n";
+    } else {
+        ss << "        local inst = code[pc]\n";
+    }
+
+    // VM Logic - Part 2
+    ss << R"(        pc = pc + 1
 
         local op = inst[1]
         local a = inst[2]
@@ -367,9 +403,15 @@ end
 -- Run main chunk
 run_vm({ proto = main_proto, upvalues = {} }, {})
 )";
+
+    std::string result = ss.str();
+    if (pack) {
+        result = minify(result);
+    }
+    out << result;
 }
 
-void LuaGenerator::generateProto(Prototype* proto, std::ostream& out, int index, const OpCodeStrategy& strategy) {
+void LuaGenerator::generateProto(Prototype* proto, std::ostream& out, int index, const OpCodeStrategy& strategy, bool encrypt) {
     (void)index;
     out << "{\n";
 
@@ -385,7 +427,11 @@ void LuaGenerator::generateProto(Prototype* proto, std::ostream& out, int index,
         } else if (is_boolean(v)) {
             out << (as_boolean(v) ? "true" : "false");
         } else if (is_string(v)) {
-            out << "\"" << as_string(v) << "\"";
+            if (encrypt) {
+                out << encryptString(as_string(v));
+            } else {
+                out << "\"" << as_string(v) << "\"";
+            }
         } else {
             out << "nil";
         }
@@ -397,7 +443,11 @@ void LuaGenerator::generateProto(Prototype* proto, std::ostream& out, int index,
     out << "  code = {\n";
     for (size_t i = 0; i < proto->instructions.size(); ++i) {
         const Instruction& inst = proto->instructions[i];
-        out << "    {" << strategy.get(inst.op) << ", " << inst.a << ", " << inst.b << ", " << inst.c << "},\n";
+        if (encrypt) {
+             out << "    " << encryptInstruction(strategy.get(inst.op), inst.a, inst.b, inst.c, i + 1) << ",\n";
+        } else {
+             out << "    {" << strategy.get(inst.op) << ", " << inst.a << ", " << inst.b << ", " << inst.c << "},\n";
+        }
     }
     out << "  },\n";
 
@@ -405,7 +455,7 @@ void LuaGenerator::generateProto(Prototype* proto, std::ostream& out, int index,
     out << "  protos = {\n";
     for (size_t i = 0; i < proto->protos.size(); ++i) {
          out << "    [" << i << "] = ";
-         generateProto(proto->protos[i], out, i, strategy);
+         generateProto(proto->protos[i], out, i, strategy, encrypt);
          out << ",\n";
     }
     out << "  },\n";
@@ -419,4 +469,64 @@ void LuaGenerator::generateProto(Prototype* proto, std::ostream& out, int index,
     out << "  }\n";
 
     out << "}";
+}
+
+static std::string encryptString(const std::string& s) {
+    std::stringstream ss;
+    ss << "decrypt_string({";
+    for (size_t i = 0; i < s.length(); ++i) {
+        ss << (int)((unsigned char)s[i] ^ 0xAA);
+        if (i < s.length() - 1) ss << ",";
+    }
+    ss << "})";
+    return ss.str();
+}
+
+static std::string encryptInstruction(int op, int a, int b, int c, int pc) {
+    unsigned int key = 0xDEADBEEF ^ pc;
+    std::stringstream ss;
+    ss << "{" << (op ^ key) << ", " << (a ^ key) << ", " << (b ^ key) << ", " << (c ^ key) << "}";
+    return ss.str();
+}
+
+static std::string minify(std::string code) {
+    std::string res;
+    bool inString = false;
+    bool inComment = false;
+    for (size_t i = 0; i < code.length(); ++i) {
+        char c = code[i];
+        if (inComment) {
+            if (c == '\n') {
+                inComment = false;
+                res += ' ';
+            }
+        } else if (inString) {
+            res += c;
+            if (c == '"') {
+                // Check if the quote is escaped by counting preceding backslashes
+                int backslashes = 0;
+                size_t j = i;
+                while (j > 0 && code[j-1] == '\\') {
+                    backslashes++;
+                    j--;
+                }
+                if (backslashes % 2 == 0) {
+                    inString = false;
+                }
+            }
+        } else {
+            if (c == '-' && i + 1 < code.length() && code[i+1] == '-') {
+                inComment = true;
+                i++; // Skip second '-'
+            } else if (c == '"') {
+                inString = true;
+                res += c;
+            } else if (isspace(c)) {
+                if (res.empty() || res.back() != ' ') res += ' ';
+            } else {
+                res += c;
+            }
+        }
+    }
+    return res;
 }
