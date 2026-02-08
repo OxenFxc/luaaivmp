@@ -1,6 +1,7 @@
 #include "Compiler.h"
 #include <stdexcept>
 #include <algorithm>
+#include <iostream>
 
 Compiler::Compiler() : currentTokenIdx(0), current(nullptr) {}
 
@@ -187,6 +188,10 @@ void Compiler::parseStatementImpl() {
                     emit(Instruction(OP_GETTABLE, resReg, valReg, keyReg));
                     valReg = resReg;
                 } else if (match(TokenType::LPAREN)) {
+                    int base = allocateRegister();
+                    emit(Instruction(OP_MOVE, base, valReg, 0));
+                    valReg = base;
+
                     std::vector<int> args;
                     if (!match(TokenType::RPAREN)) {
                         do {
@@ -194,7 +199,7 @@ void Compiler::parseStatementImpl() {
                         } while (match(TokenType::COMMA));
                         consume(TokenType::RPAREN, "Expect ')' after arguments");
                     }
-                    int base = valReg;
+
                     for (size_t i = 0; i < args.size(); ++i) {
                         emit(Instruction(OP_MOVE, base + 1 + i, args[i], 0));
                     }
@@ -211,8 +216,11 @@ void Compiler::parseStatementImpl() {
                     int funcReg = allocateRegister();
                     emit(Instruction(OP_GETTABLE, funcReg, valReg, keyReg));
 
+                    int selfReg = allocateRegister();
+                    emit(Instruction(OP_MOVE, selfReg, valReg, 0));
+
                     std::vector<int> args;
-                    args.push_back(valReg); // self
+                    args.push_back(selfReg); // self
                     if (!match(TokenType::RPAREN)) {
                         do {
                             args.push_back(parseExpression());
@@ -900,6 +908,10 @@ int Compiler::parseAtom() {
                  emit(Instruction(OP_GETTABLE, resReg, valReg, keyReg));
                  valReg = resReg;
             } else if (match(TokenType::LPAREN)) {
+                int base = allocateRegister();
+                emit(Instruction(OP_MOVE, base, valReg, 0));
+                valReg = base;
+
                 std::vector<int> args;
                 if (!match(TokenType::RPAREN)) {
                     do {
@@ -908,7 +920,6 @@ int Compiler::parseAtom() {
                     consume(TokenType::RPAREN, "Expect ')'");
                 }
 
-                int base = valReg;
                 for(size_t i=0; i<args.size(); ++i) {
                      emit(Instruction(OP_MOVE, base + 1 + i, args[i], 0));
                 }
@@ -922,8 +933,11 @@ int Compiler::parseAtom() {
                 int funcReg = allocateRegister();
                 emit(Instruction(OP_GETTABLE, funcReg, valReg, keyReg));
 
+                int selfReg = allocateRegister();
+                emit(Instruction(OP_MOVE, selfReg, valReg, 0));
+
                 std::vector<int> args;
-                args.push_back(valReg);
+                args.push_back(selfReg);
 
                 consume(TokenType::LPAREN, "Expect '(' after method name");
                 if (!match(TokenType::RPAREN)) {
