@@ -22,6 +22,7 @@ enum class TokenType {
 
     // Keywords
     IF, THEN, ELSE, END, WHILE, DO, FUNCTION, RETURN,
+    AND, OR, NOT, NIL, TRUE, FALSE,
 
     // Symbols
     LBRACE,     // {
@@ -31,6 +32,10 @@ enum class TokenType {
     COMMA,      // ,
     DOT,        // .
     COLON,      // :
+    DOTDOT,     // ..
+    DOTDOTDOT,  // ...
+    HASH,       // #
+    PERCENT,    // %
 
     // Comparison
     EQ, // ==

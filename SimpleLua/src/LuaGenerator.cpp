@@ -9,6 +9,10 @@ void LuaGenerator::generate(Prototype* proto, std::ostream& out) {
     out << "local OP_SUB = " << OP_SUB << "\n";
     out << "local OP_MUL = " << OP_MUL << "\n";
     out << "local OP_DIV = " << OP_DIV << "\n";
+    out << "local OP_MOD = " << OP_MOD << "\n";
+    out << "local OP_CONCAT = " << OP_CONCAT << "\n";
+    out << "local OP_LEN = " << OP_LEN << "\n";
+    out << "local OP_NOT = " << OP_NOT << "\n";
     out << "local OP_EQ = " << OP_EQ << "\n";
     out << "local OP_LT = " << OP_LT << "\n";
     out << "local OP_LE = " << OP_LE << "\n";
@@ -23,6 +27,7 @@ void LuaGenerator::generate(Prototype* proto, std::ostream& out) {
     out << "local OP_CLOSURE = " << OP_CLOSURE << "\n";
     out << "local OP_GETUPVAL = " << OP_GETUPVAL << "\n";
     out << "local OP_SETUPVAL = " << OP_SETUPVAL << "\n";
+    out << "local OP_VARARG = " << OP_VARARG << "\n";
     out << "local OP_PRINT = " << OP_PRINT << "\n";
     out << "local OP_RETURN = " << OP_RETURN << "\n\n";
 
@@ -34,7 +39,7 @@ void LuaGenerator::generate(Prototype* proto, std::ostream& out) {
     out << R"(
 local _G = _G -- Global environment
 
-local function run_vm(closure, args)
+local function run_vm(closure, args, varargs)
     local proto = closure.proto
     local stack = {}
 
@@ -47,6 +52,8 @@ local function run_vm(closure, args)
             stack[i-1] = args[i]
         end
     end
+
+    local vargs = varargs or {}
 
     local pc = 1
     local code = proto.code
@@ -82,6 +89,18 @@ local function run_vm(closure, args)
         elseif op == OP_DIV then
             stack[a] = stack[b] / stack[c]
             if open_upvalues[a] then open_upvalues[a].val = stack[a] end
+        elseif op == OP_MOD then
+            stack[a] = stack[b] % stack[c]
+            if open_upvalues[a] then open_upvalues[a].val = stack[a] end
+        elseif op == OP_CONCAT then
+            stack[a] = stack[b] .. stack[c]
+            if open_upvalues[a] then open_upvalues[a].val = stack[a] end
+        elseif op == OP_LEN then
+            stack[a] = #stack[b]
+            if open_upvalues[a] then open_upvalues[a].val = stack[a] end
+        elseif op == OP_NOT then
+            stack[a] = not stack[b]
+            if open_upvalues[a] then open_upvalues[a].val = stack[a] end
         elseif op == OP_EQ then
             stack[a] = (stack[b] == stack[c])
             if open_upvalues[a] then open_upvalues[a].val = stack[a] end
@@ -115,6 +134,16 @@ local function run_vm(closure, args)
             if open_upvalues[a] then open_upvalues[a].val = stack[a] end
         elseif op == OP_SETUPVAL then
             upvalues[b].val = stack[a]
+        elseif op == OP_VARARG then
+            -- R(A) ... R(A+C-2) = varargs
+            local n = c - 1
+            if n < 0 then n = #vargs end -- All varargs? B=0.
+            -- Using C to determine how many
+            -- If C=2, we want 1.
+            for i = 1, n do
+                stack[a + i - 1] = vargs[i]
+            end
+            if open_upvalues[a] then open_upvalues[a].val = stack[a] end
         elseif op == OP_CLOSURE then
             local p = protos[b]
             -- Check if upvalues exist (might be nil if no upvalues)
@@ -151,7 +180,22 @@ local function run_vm(closure, args)
             end
 
             if type(func) == "table" and func.type == "closure" then
-                local results = run_vm(func, callArgs)
+                -- Need to separate fixed args and varargs?
+                -- SimpleLua doesn't distinguish well in call site unless we change OP_CALL.
+                -- For now, all extra args are just args.
+                -- But VM needs to split them for params vs varargs.
+                local fixedParams = func.proto.numParams or 0
+                local fArgs = {}
+                local vArgs = {}
+                for i = 1, #callArgs do
+                    if i <= fixedParams then
+                        table.insert(fArgs, callArgs[i])
+                    else
+                        table.insert(vArgs, callArgs[i])
+                    end
+                end
+
+                local results = run_vm(func, fArgs, vArgs)
                 local numResults = c - 1
                 if numResults > 0 then
                    stack[a] = results

@@ -177,17 +177,27 @@ void Compiler::parseFunctionStatement() {
 
     CompilerState* fnState = new CompilerState(current);
     current->proto->protos.push_back(fnState->proto);
-    int protoIdx = current->proto->protos.size() - 1;
+    int protoIdx = (int)current->proto->protos.size() - 1;
 
     CompilerState* parent = current;
     current = fnState;
 
     if (!match(TokenType::RPAREN)) {
         do {
+            if (match(TokenType::DOTDOTDOT)) {
+                // Vararg found, must be last.
+                // We should ensure we don't expect more commas?
+                // But loop condition is match(COMMA).
+                // If we hit ..., we break loop?
+                // But we are inside do-while.
+                // If I match ..., I should consume RPAREN and return.
+                break;
+            }
             Token param = consume(TokenType::ID, "Expect parameter name");
             current->locals[param.value] = allocateRegister();
             current->proto->numParams++;
         } while (match(TokenType::COMMA));
+
         consume(TokenType::RPAREN, "Expect ')' after parameters");
     }
 
@@ -212,13 +222,16 @@ int Compiler::parseFunctionExpression() {
 
     CompilerState* fnState = new CompilerState(current);
     current->proto->protos.push_back(fnState->proto);
-    int protoIdx = current->proto->protos.size() - 1;
+    int protoIdx = (int)current->proto->protos.size() - 1;
 
     CompilerState* parent = current;
     current = fnState;
 
     if (!match(TokenType::RPAREN)) {
         do {
+            if (match(TokenType::DOTDOTDOT)) {
+                break;
+            }
             Token param = consume(TokenType::ID, "Expect parameter name");
             current->locals[param.value] = allocateRegister();
             current->proto->numParams++;
@@ -292,17 +305,86 @@ void Compiler::parseWhileStatement() {
 }
 
 int Compiler::parseExpression() {
-    return parseComparison();
+    return parseLogic();
+}
+
+int Compiler::parseLogic() {
+    int leftReg = parseComparison();
+
+    while (peek().type == TokenType::AND || peek().type == TokenType::OR) {
+        TokenType op = advance().type;
+        // Short-circuit logic implementation using Jumps
+        // A and B: if A is false, jump to end (result is A), else result is B
+        // A or B: if A is true, jump to end (result is A), else result is B
+
+        // This requires 'TESTSET' or similar, or manual JMPs.
+        // Simplified: Evaluate both (no short circuit) or implement simple jumps.
+        // Let's implement full short-circuit logic?
+        // It requires patching.
+
+        // For simplicity in this demo, I will treat AND/OR as binary operators without short-circuit
+        // OR I can use the existing infrastructure.
+        // But Lua AND/OR returns the value, not bool.
+
+        // Let's defer proper short-circuit implementation and just parse the structure.
+        // I don't have logical opcodes (OP_AND/OP_OR) in my VM set.
+        // Using JMP_FALSE etc.
+
+        // "and":
+        //   res = left
+        //   JMP_FALSE res, done
+        //   right = parseComparison()
+        //   res = right
+        // done:
+
+        int resReg = allocateRegister();
+        emit(Instruction(OP_MOVE, resReg, leftReg, 0));
+
+        if (op == TokenType::AND) {
+            int jmp = emitJump(OP_JMP_FALSE, resReg);
+            int rightReg = parseComparison();
+            emit(Instruction(OP_MOVE, resReg, rightReg, 0));
+            patchJump(jmp);
+        } else {
+            // "or"
+            //   res = left
+            //   JMP_TRUE res, done (Need JMP_TRUE or NOT + JMP_FALSE)
+            //   No JMP_TRUE.
+            //   Emulate:
+            //   TEST res (if true skip next)
+            //   JMP over_move
+            //   JMP done
+            // over_move:
+            //   right = parseComparison
+            //   res = right
+            // done:
+
+            // Or simpler if I add OP_TEST / OP_TESTSET which I haven't.
+            // I added OP_NOT.
+            // if not res then ... else jump done
+
+            int notReg = allocateRegister();
+            emit(Instruction(OP_NOT, notReg, resReg, 0));
+            int jmp = emitJump(OP_JMP_FALSE, notReg); // Jump if NOT(res) is false (meaning res is true)
+
+            int rightReg = parseComparison();
+            emit(Instruction(OP_MOVE, resReg, rightReg, 0));
+
+            patchJump(jmp);
+        }
+        leftReg = resReg;
+    }
+    return leftReg;
 }
 
 int Compiler::parseComparison() {
-    int leftReg = parseTerm();
+    int leftReg = parseConcatenation();
 
     while (peek().type == TokenType::EQ || peek().type == TokenType::NE ||
            peek().type == TokenType::LT || peek().type == TokenType::LE ||
            peek().type == TokenType::GT || peek().type == TokenType::GE) {
         TokenType op = advance().type;
-        int rightReg = parseTerm();
+        int rightReg = parseConcatenation();
         int resultReg = allocateRegister();
 
         if (op == TokenType::EQ) {
@@ -319,6 +401,19 @@ int Compiler::parseComparison() {
              throw std::runtime_error("Operator not implemented yet");
         }
         leftReg = resultReg;
+    }
+    return leftReg;
+}
+
+int Compiler::parseConcatenation() {
+    int leftReg = parseTerm();
+
+    // Right associative ..
+    if (match(TokenType::DOTDOT)) {
+        int rightReg = parseConcatenation();
+        int resultReg = allocateRegister();
+        emit(Instruction(OP_CONCAT, resultReg, leftReg, rightReg));
+        return resultReg;
     }
     return leftReg;
 }
@@ -340,19 +435,45 @@ int Compiler::parseTerm() {
 }
 
 int Compiler::parseFactor() {
-    int leftReg = parseAtom();
-    while (peek().type == TokenType::MUL || peek().type == TokenType::DIV) {
+    int leftReg = parseUnary();
+    while (peek().type == TokenType::MUL || peek().type == TokenType::DIV || peek().type == TokenType::PERCENT) {
         TokenType op = advance().type;
-        int rightReg = parseAtom();
+        int rightReg = parseUnary();
         int resultReg = allocateRegister();
         if (op == TokenType::MUL) {
             emit(Instruction(OP_MUL, resultReg, leftReg, rightReg));
-        } else {
+        } else if (op == TokenType::DIV) {
             emit(Instruction(OP_DIV, resultReg, leftReg, rightReg));
+        } else {
+            emit(Instruction(OP_MOD, resultReg, leftReg, rightReg));
         }
         leftReg = resultReg;
     }
     return leftReg;
+}
+
+int Compiler::parseUnary() {
+    if (match(TokenType::NOT)) {
+        int operand = parseUnary();
+        int reg = allocateRegister();
+        emit(Instruction(OP_NOT, reg, operand, 0));
+        return reg;
+    } else if (match(TokenType::HASH)) {
+        int operand = parseUnary();
+        int reg = allocateRegister();
+        emit(Instruction(OP_LEN, reg, operand, 0));
+        return reg;
+    } else if (match(TokenType::MINUS)) {
+        // Unary minus: 0 - operand
+        int operand = parseUnary();
+        int reg = allocateRegister();
+        int zeroIdx = addConstant(0.0);
+        int zeroReg = allocateRegister();
+        emit(Instruction(OP_LOADK, zeroReg, zeroIdx));
+        emit(Instruction(OP_SUB, reg, zeroReg, operand));
+        return reg;
+    }
+    return parseAtom();
 }
 
 int Compiler::parseAtom() {
@@ -367,6 +488,33 @@ int Compiler::parseAtom() {
         int constIdx = addConstant(t.value);
         int reg = allocateRegister();
         emit(Instruction(OP_LOADK, reg, constIdx));
+        return reg;
+    } else if (match(TokenType::NIL)) {
+        int constIdx = addConstant(Value(Nil{}));
+        int reg = allocateRegister();
+        emit(Instruction(OP_LOADK, reg, constIdx));
+        return reg;
+    } else if (match(TokenType::TRUE)) {
+        int constIdx = addConstant(true);
+        int reg = allocateRegister();
+        emit(Instruction(OP_LOADK, reg, constIdx));
+        return reg;
+    } else if (match(TokenType::FALSE)) {
+        int constIdx = addConstant(false);
+        int reg = allocateRegister();
+        emit(Instruction(OP_LOADK, reg, constIdx));
+        return reg;
+    } else if (match(TokenType::DOTDOTDOT)) {
+        int reg = allocateRegister();
+        emit(Instruction(OP_VARARG, reg, 0, 0)); // B=0 means "all", C=0 means "all results to top" (but register based...)
+        // Simplified: C=2 means 1 result. C=0 means variable results.
+        // For atomic expression, we usually want 1 value.
+        // But `...` can return multiple.
+        // Let's assume 1 for now or special handling.
+        // Instruction OP_VARARG A B C: R(A), ..., R(A+C-2) = vararg
+        // For expr, we just load into 1 reg?
+        // Let's set C=2 (1 result)
+        emit(Instruction(OP_VARARG, reg, 0, 2));
         return reg;
     } else if (match(TokenType::LBRACE)) {
         return parseTableConstructor();

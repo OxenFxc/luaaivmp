@@ -58,9 +58,12 @@ private:
     void parseBlock();
 
     int parseExpression();
+    int parseLogic();
     int parseComparison();
+    int parseConcatenation();
     int parseTerm();
     int parseFactor();
+    int parseUnary();
     int parseAtom();
     int parseTableConstructor();
 

@@ -6,29 +6,27 @@
 
 int main() {
     std::string source =
-        "function make_counter()\n"
-        "    local count = 0;\n"
-        "    function increment()\n"
-        "        count = count + 1;\n"
-        "        return count;\n"
+        "function sum(...)\n"
+        "    local s = 0;\n"
+        "    local args = {...};\n"
+        "    print(\"Number of args: \" .. #args);\n"
+        "    local i = 1;\n"
+        "    while i <= #args do\n"
+        "        s = s + args[i];\n"
+        "        i = i + 1;\n"
         "    end\n"
-        "    return increment;\n"
+        "    return s;\n"
         "end\n"
         "\n"
-        "local counter = make_counter();\n"
-        "print(counter());\n"
-        "print(counter());\n"
+        "local res = sum(1, 2, 3, 4, 5);\n"
+        "print(\"Sum: \" .. res);\n"
         "\n"
-        "local t = {};\n"
-        "local mt = {};\n"
-        "mt.__call = function(t, x)\n"
-        "    print(\"Called table with: \");\n"
-        "    print(x);\n"
-        "end;\n"
-        "setmetatable(t, mt);\n"
-        "t(123);\n"
+        "if not (res > 100) then\n"
+        "    print(\"Sum is not greater than 100\");\n"
+        "end\n"
         "\n"
-        "print(\"Done\");";
+        "local is_even = (res % 2) == 0;\n"
+        "print(\"Is even? \" .. tostring(is_even));"; // tostring might not be in _G access optimization yet? GETGLOBAL handles it.
 
     std::cout << "Source Code:\n" << source << "\n\n";
 

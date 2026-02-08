@@ -82,9 +82,16 @@ Token Lexer::scanToken() {
         case '[': return {TokenType::LBRACKET, "[", line};
         case ']': return {TokenType::RBRACKET, "]", line};
         case ',': return {TokenType::COMMA, ",", line};
-        case '.': return {TokenType::DOT, ".", line};
+        case '.':
+            if (match('.')) {
+                if (match('.')) return {TokenType::DOTDOTDOT, "...", line};
+                return {TokenType::DOTDOT, "..", line};
+            }
+            return {TokenType::DOT, ".", line};
         case ':': return {TokenType::COLON, ":", line};
         case ';': return {TokenType::SEMICOLON, ";", line};
+        case '#': return {TokenType::HASH, "#", line};
+        case '%': return {TokenType::PERCENT, "%", line};
         default:
             return {TokenType::UNKNOWN, std::string(1, c), line};
     }
@@ -106,6 +113,12 @@ Token Lexer::identifier() {
     if (text == "do") return {TokenType::DO, text, line};
     if (text == "function") return {TokenType::FUNCTION, text, line};
     if (text == "return") return {TokenType::RETURN, text, line};
+    if (text == "and") return {TokenType::AND, text, line};
+    if (text == "or") return {TokenType::OR, text, line};
+    if (text == "not") return {TokenType::NOT, text, line};
+    if (text == "nil") return {TokenType::NIL, text, line};
+    if (text == "true") return {TokenType::TRUE, text, line};
+    if (text == "false") return {TokenType::FALSE, text, line};
 
     return {TokenType::ID, text, line};
 }
