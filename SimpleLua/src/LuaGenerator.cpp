@@ -281,6 +281,8 @@ void LuaGenerator::generateProto(Prototype* proto, std::ostream& out, int index)
     (void)index;
     out << "{\n";
 
+    out << "  numParams = " << proto->numParams << ",\n";
+
     // Constants
     out << "  constants = {\n";
     for (size_t i = 0; i < proto->constants.size(); ++i) {
