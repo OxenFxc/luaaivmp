@@ -33,6 +33,7 @@ struct CompilerState {
     std::unordered_map<std::string, int> locals;
     std::unordered_map<std::string, int> labels; // label name -> pc
     std::vector<Goto> pendingGotos;
+    std::vector<std::vector<int>> breakJumps; // Jumps to patch for break statements
 
     int nextReg;
     std::bitset<256> allocatedRegs;
@@ -64,6 +65,7 @@ private:
     void parseIfStatement();
     void parseWhileStatement();
     void parseForStatement();
+    void parseBreakStatement();
     void parseGotoStatement();
     void parseLabelStatement();
     void parseFunctionStatement();
