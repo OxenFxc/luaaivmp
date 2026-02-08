@@ -1,10 +1,9 @@
-local function f() end
+local function factorial(n)
+    if n == 0 then
+        return 1
+    else
+        return n * factorial(n - 1)
+    end
+end
 
-local t = {}
-t[1] = 2
-
-table.insert(t, 3)
-
-local stack = {}
-stack[1] = {}
-stack[1][1] = 10
+print(factorial(5))
