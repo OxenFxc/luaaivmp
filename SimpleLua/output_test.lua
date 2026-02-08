@@ -1,44 +1,89 @@
-#include "LuaGenerator.h"
-#include <vector>
+local OP_MOVE = 0
+local OP_LOADK = 1
+local OP_ADD = 2
+local OP_SUB = 3
+local OP_MUL = 4
+local OP_DIV = 5
+local OP_MOD = 6
+local OP_CONCAT = 7
+local OP_LEN = 8
+local OP_NOT = 9
+local OP_EQ = 10
+local OP_LT = 11
+local OP_LE = 12
+local OP_JMP = 13
+local OP_JMP_FALSE = 14
+local OP_GETGLOBAL = 15
+local OP_SETGLOBAL = 16
+local OP_NEWTABLE = 17
+local OP_GETTABLE = 18
+local OP_SETTABLE = 19
+local OP_CALL = 20
+local OP_CLOSURE = 21
+local OP_GETUPVAL = 22
+local OP_SETUPVAL = 23
+local OP_VARARG = 24
+local OP_FORPREP = 25
+local OP_FORLOOP = 26
+local OP_PRINT = 27
+local OP_RETURN = 28
 
-void LuaGenerator::generate(Prototype* proto, std::ostream& out) {
-    // 1. Opcodes definitions
-    out << "local OP_MOVE = " << OP_MOVE << "\n";
-    out << "local OP_LOADK = " << OP_LOADK << "\n";
-    out << "local OP_ADD = " << OP_ADD << "\n";
-    out << "local OP_SUB = " << OP_SUB << "\n";
-    out << "local OP_MUL = " << OP_MUL << "\n";
-    out << "local OP_DIV = " << OP_DIV << "\n";
-    out << "local OP_MOD = " << OP_MOD << "\n";
-    out << "local OP_CONCAT = " << OP_CONCAT << "\n";
-    out << "local OP_LEN = " << OP_LEN << "\n";
-    out << "local OP_NOT = " << OP_NOT << "\n";
-    out << "local OP_EQ = " << OP_EQ << "\n";
-    out << "local OP_LT = " << OP_LT << "\n";
-    out << "local OP_LE = " << OP_LE << "\n";
-    out << "local OP_JMP = " << OP_JMP << "\n";
-    out << "local OP_JMP_FALSE = " << OP_JMP_FALSE << "\n";
-    out << "local OP_GETGLOBAL = " << OP_GETGLOBAL << "\n";
-    out << "local OP_SETGLOBAL = " << OP_SETGLOBAL << "\n";
-    out << "local OP_NEWTABLE = " << OP_NEWTABLE << "\n";
-    out << "local OP_GETTABLE = " << OP_GETTABLE << "\n";
-    out << "local OP_SETTABLE = " << OP_SETTABLE << "\n";
-    out << "local OP_CALL = " << OP_CALL << "\n";
-    out << "local OP_CLOSURE = " << OP_CLOSURE << "\n";
-    out << "local OP_GETUPVAL = " << OP_GETUPVAL << "\n";
-    out << "local OP_SETUPVAL = " << OP_SETUPVAL << "\n";
-    out << "local OP_VARARG = " << OP_VARARG << "\n";
-    out << "local OP_FORPREP = " << OP_FORPREP << "\n";
-    out << "local OP_FORLOOP = " << OP_FORLOOP << "\n";
-    out << "local OP_PRINT = " << OP_PRINT << "\n";
-    out << "local OP_RETURN = " << OP_RETURN << "\n\n";
+local main_proto = {
+  constants = {
+    [0] = 1,
+    [1] = 2,
+    [2] = "table",
+    [3] = "insert",
+    [4] = 3,
+    [5] = 1,
+    [6] = 1,
+    [7] = 1,
+    [8] = 10,
+  },
+  code = {
+    {21, 1, 0, 0},
+    {0, 0, 1, 0},
+    {17, 1, 0, 0},
+    {0, 2, 1, 0},
+    {1, 3, 0, 0},
+    {1, 4, 1, 0},
+    {19, 2, 3, 4},
+    {15, 3, 2, 0},
+    {1, 4, 3, 0},
+    {18, 5, 3, 4},
+    {1, 6, 4, 0},
+    {0, 6, 2, 0},
+    {0, 7, 6, 0},
+    {20, 5, 3, 1},
+    {17, 3, 0, 0},
+    {0, 4, 3, 0},
+    {1, 5, 5, 0},
+    {17, 6, 0, 0},
+    {19, 4, 5, 6},
+    {1, 5, 6, 0},
+    {18, 6, 4, 5},
+    {1, 7, 7, 0},
+    {1, 8, 8, 0},
+    {19, 6, 7, 8},
+    {28, 0, 0, 0},
+  },
+  protos = {
+    [0] = {
+  constants = {
+  },
+  code = {
+    {28, 0, 1, 0},
+  },
+  protos = {
+  },
+  upvalues = {
+  }
+},
+  },
+  upvalues = {
+  }
+}
 
-    out << "local main_proto = ";
-    generateProto(proto, out, 0);
-    out << "\n";
-
-    // 4. VM Logic
-    out << R"(
 local _G = _G -- Global environment
 
 local function run_vm(closure, args, varargs)
@@ -227,8 +272,7 @@ local function run_vm(closure, args, varargs)
                 if mt and mt.__call then
                     -- call mt.__call(func, ...)
                     local metaArgs = {func}
-                    for i = 1, #callArgs do
-                        local arg = callArgs[i]
+                    for i, arg in ipairs(callArgs) do
                         table.insert(metaArgs, arg)
                     end
                     local res = mt.__call(table.unpack(metaArgs))
@@ -260,55 +304,3 @@ end
 
 -- Run main chunk
 run_vm({ proto = main_proto, upvalues = {} }, {})
-)";
-}
-
-void LuaGenerator::generateProto(Prototype* proto, std::ostream& out, int index) {
-    (void)index;
-    out << "{\n";
-
-    // Constants
-    out << "  constants = {\n";
-    for (size_t i = 0; i < proto->constants.size(); ++i) {
-        const Value& v = proto->constants[i];
-        out << "    [" << i << "] = ";
-        if (is_number(v)) {
-            out << as_number(v);
-        } else if (is_boolean(v)) {
-            out << (as_boolean(v) ? "true" : "false");
-        } else if (is_string(v)) {
-            out << "\"" << as_string(v) << "\"";
-        } else {
-            out << "nil";
-        }
-        out << ",\n";
-    }
-    out << "  },\n";
-
-    // Instructions
-    out << "  code = {\n";
-    for (size_t i = 0; i < proto->instructions.size(); ++i) {
-        const Instruction& inst = proto->instructions[i];
-        out << "    {" << inst.op << ", " << inst.a << ", " << inst.b << ", " << inst.c << "},\n";
-    }
-    out << "  },\n";
-
-    // Nested Prototypes (References)
-    out << "  protos = {\n";
-    for (size_t i = 0; i < proto->protos.size(); ++i) {
-         out << "    [" << i << "] = ";
-         generateProto(proto->protos[i], out, i);
-         out << ",\n";
-    }
-    out << "  },\n";
-
-    // Upvalues metadata
-    out << "  upvalues = {\n";
-    for (size_t i = 0; i < proto->upvalues.size(); ++i) {
-        out << "    [" << i << "] = { isLocal = " << (proto->upvalues[i].isLocal ? "true" : "false")
-            << ", index = " << proto->upvalues[i].index << " },\n";
-    }
-    out << "  }\n";
-
-    out << "}";
-}

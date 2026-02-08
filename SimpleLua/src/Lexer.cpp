@@ -32,6 +32,11 @@ void Lexer::skipWhitespace() {
         } else if (c == '\n') {
             line++;
             advance();
+        } else if (c == '-' && pos + 1 < (int)source.length() && source[pos + 1] == '-') {
+            // Comment
+            while (peek() != '\n' && peek() != '\0') {
+                advance();
+            }
         } else {
             break;
         }

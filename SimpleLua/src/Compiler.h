@@ -7,6 +7,7 @@
 #include <vector>
 #include <unordered_map>
 #include <string>
+#include <bitset>
 
 struct UpvalueInfo {
     bool isLocal;
@@ -26,6 +27,7 @@ struct CompilerState {
     Prototype* proto;
     std::unordered_map<std::string, int> locals;
     int nextReg;
+    std::bitset<256> allocatedRegs;
     CompilerState* enclosing; // Parent scope
 
     CompilerState(CompilerState* parent) : proto(new Prototype()), nextReg(0), enclosing(parent) {
@@ -50,6 +52,7 @@ private:
     Token consume(TokenType type, const std::string& errorMessage);
 
     void parseStatement();
+    void parseStatementImpl();
     void parseIfStatement();
     void parseWhileStatement();
     void parseForStatement();
@@ -75,6 +78,9 @@ private:
     int resolveLocal(CompilerState* state, const std::string& name);
     int resolveUpvalue(CompilerState* state, const std::string& name);
     int addUpvalue(CompilerState* state, int index, bool isLocal);
+
+    std::vector<std::string> snapshotLocals();
+    void restoreLocals(const std::vector<std::string>& snapshot);
 
     int addConstant(Value v);
     void emit(Instruction inst);
