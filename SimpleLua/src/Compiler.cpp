@@ -124,6 +124,8 @@ void Compiler::parseStatementImpl() {
         parseFunctionStatement();
     } else if (match(TokenType::RETURN)) {
         parseReturnStatement();
+    } else if (match(TokenType::BREAK)) {
+        parseBreakStatement();
     } else if (match(TokenType::GOTO)) {
         parseGotoStatement();
     } else if (match(TokenType::DOUBLE_COLON)) {
@@ -450,6 +452,8 @@ void Compiler::parseWhileStatement() {
 
     int jumpFalse = emitJump(OP_JMP_FALSE, condReg);
 
+    current->breakJumps.emplace_back();
+
     std::vector<std::string> snapshot = snapshotLocals();
     while (peek().type != TokenType::END && peek().type != TokenType::END_OF_FILE) {
         parseStatement();
@@ -460,6 +464,9 @@ void Compiler::parseWhileStatement() {
 
     patchJump(jumpFalse);
     consume(TokenType::END, "Expect 'end' after while loop");
+
+    for (int j : current->breakJumps.back()) patchJump(j);
+    current->breakJumps.pop_back();
 }
 
 void Compiler::parseForStatement() {
@@ -507,6 +514,8 @@ void Compiler::parseForStatement() {
         int loopStart = (int)current->proto->instructions.size();
         emit(Instruction(OP_FORPREP, base, 0));
 
+        current->breakJumps.emplace_back();
+
         std::vector<std::string> snapshot = snapshotLocals();
         while (peek().type != TokenType::END && peek().type != TokenType::END_OF_FILE) {
             parseStatement();
@@ -517,6 +526,9 @@ void Compiler::parseForStatement() {
 
         int loopEnd = (int)current->proto->instructions.size();
         emit(Instruction(OP_FORLOOP, base, 0));
+
+        for (int j : current->breakJumps.back()) patchJump(j);
+        current->breakJumps.pop_back();
 
         int prepOffset = loopEnd - loopStart - 1;
         current->proto->instructions[loopStart].b = prepOffset;
@@ -605,6 +617,8 @@ void Compiler::parseForStatement() {
         int jumpInst = emitJump(OP_JMP);
         int loopStart = (int)current->proto->instructions.size();
 
+        current->breakJumps.emplace_back();
+
         std::vector<std::string> snapshot = snapshotLocals();
         while (peek().type != TokenType::END && peek().type != TokenType::END_OF_FILE) {
             parseStatement();
@@ -617,6 +631,9 @@ void Compiler::parseForStatement() {
 
         emit(Instruction(OP_TFORCALL, base, 0, (int)varNames.size()));
         emit(Instruction(OP_TFORLOOP, base + 2, 0, 0));
+
+        for (int j : current->breakJumps.back()) patchJump(j);
+        current->breakJumps.pop_back();
         current->proto->instructions.back().b = loopStart - (int)current->proto->instructions.size();
 
         // Cleanup
@@ -625,6 +642,15 @@ void Compiler::parseForStatement() {
         current->allocatedRegs[base + 2] = false;
         for (int r : loopVars) current->allocatedRegs[r] = false;
     }
+}
+
+void Compiler::parseBreakStatement() {
+    if (current->breakJumps.empty()) {
+        throw std::runtime_error("Break outside of loop at line " + std::to_string(peek().line));
+    }
+    int jmp = emitJump(OP_JMP);
+    current->breakJumps.back().push_back(jmp);
+    if (match(TokenType::SEMICOLON)) {}
 }
 
 void Compiler::parseGotoStatement() {
@@ -741,6 +767,9 @@ int Compiler::parseComparison() {
 
         if (op == TokenType::EQ) {
             emit(Instruction(OP_EQ, resultReg, leftReg, rightReg));
+        } else if (op == TokenType::NE) {
+            emit(Instruction(OP_EQ, resultReg, leftReg, rightReg));
+            emit(Instruction(OP_NOT, resultReg, resultReg, 0));
         } else if (op == TokenType::LT) {
             emit(Instruction(OP_LT, resultReg, leftReg, rightReg));
         } else if (op == TokenType::LE) {
