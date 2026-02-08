@@ -172,9 +172,15 @@ local function run_vm(closure, args, varargs)
             stack[a] = {}
             if open_upvalues[a] then open_upvalues[a].val = stack[a] end
         elseif op == OP_GETTABLE then
+            if stack[b] == nil then
+                error("OP_GETTABLE: stack[" .. b .. "] is nil. Key: " .. tostring(stack[c]))
+            end
             stack[a] = stack[b][stack[c]]
             if open_upvalues[a] then open_upvalues[a].val = stack[a] end
         elseif op == OP_SETTABLE then
+            if stack[a] == nil then
+                error("OP_SETTABLE: stack[" .. a .. "] is nil. Key: " .. tostring(stack[b]))
+            end
             stack[a][stack[b]] = stack[c]
         elseif op == OP_GETUPVAL then
             stack[a] = upvalues[b].val
@@ -261,9 +267,17 @@ local function run_vm(closure, args, varargs)
                    if open_upvalues[a] then open_upvalues[a].val = stack[a] end
                 end
             elseif type(func) == "function" then
-                 local res = func(table.unpack(callArgs))
-                 if c - 1 > 0 then
-                     stack[a] = res
+                 local results = { func(table.unpack(callArgs)) }
+                 local numResults = c - 1
+                 if numResults > 0 then
+                     for i = 1, numResults do
+                         stack[a + i - 1] = results[i]
+                     end
+                     if open_upvalues[a] then open_upvalues[a].val = stack[a] end
+                 elseif numResults < 0 then
+                     for i = 1, #results do
+                         stack[a + i - 1] = results[i]
+                     end
                      if open_upvalues[a] then open_upvalues[a].val = stack[a] end
                  end
             else
