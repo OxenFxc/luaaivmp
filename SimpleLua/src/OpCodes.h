@@ -8,6 +8,7 @@ enum OpCode {
     OP_SUB,     // R(A) := R(B) - R(C)
     OP_MUL,     // R(A) := R(B) * R(C)
     OP_DIV,     // R(A) := R(B) / R(C)
+    OP_IDIV,    // R(A) := R(B) // R(C)
     OP_MOD,     // R(A) := R(B) % R(C)
     OP_CONCAT,  // R(A) := R(B) .. R(C)
     OP_LEN,     // R(A) := #R(B)
@@ -29,7 +30,8 @@ enum OpCode {
     OP_VARARG,    // R(A), ..., R(A+C-2) := varargs
     OP_FORPREP,   // R(A)-=R(A+2); pc+=sBx
     OP_FORLOOP,   // R(A)+=R(A+2); if cmp(R(A), R(A+1)) then { pc+=sBx; R(A+3)=R(A) }
-    OP_PRINT,   // Custom: print(R(A))
+    OP_TFORCALL,  // R(A+3), ... ,R(A+2+C) := R(A)(R(A+1), R(A+2))
+    OP_TFORLOOP,  // if R(A+1) ~= nil then { R(A)=R(A+1); pc += sBx }
     OP_RETURN   // return R(A) ... (or variable returns)
 };
 
