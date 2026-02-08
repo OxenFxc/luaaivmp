@@ -1,0 +1,53 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [ "main" ]
+  release:
+    types: [published]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: SimpleLua
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Install ccache
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y ccache
+
+    - name: Cache ccache
+      uses: actions/cache@v3
+      with:
+        path: ~/.ccache
+        key: ${{ runner.os }}-ccache-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-ccache-
+
+    - name: Build
+      run: |
+        export PATH="/usr/lib/ccache:$PATH"
+        make CXX="ccache g++"
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: simple_lua
+        path: SimpleLua/simple_lua
+
+    - name: Upload Release Asset
+      if: github.event_name == 'release'
+      uses: softprops/action-gh-release@v1
+      with:
+        files: SimpleLua/simple_lua
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Clean Build Artifacts
+      run: make clean

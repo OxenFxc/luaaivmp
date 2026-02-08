@@ -108,9 +108,12 @@ Token Lexer::identifier() {
     if (text == "if") return {TokenType::IF, text, line};
     if (text == "then") return {TokenType::THEN, text, line};
     if (text == "else") return {TokenType::ELSE, text, line};
+    if (text == "elseif") return {TokenType::ELSEIF, text, line};
     if (text == "end") return {TokenType::END, text, line};
     if (text == "while") return {TokenType::WHILE, text, line};
     if (text == "do") return {TokenType::DO, text, line};
+    if (text == "for") return {TokenType::FOR, text, line};
+    if (text == "in") return {TokenType::IN, text, line};
     if (text == "function") return {TokenType::FUNCTION, text, line};
     if (text == "return") return {TokenType::RETURN, text, line};
     if (text == "and") return {TokenType::AND, text, line};
