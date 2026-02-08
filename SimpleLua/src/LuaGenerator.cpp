@@ -42,6 +42,7 @@ void LuaGenerator::generate(Prototype* proto, std::ostream& out) {
     // 4. VM Logic
     out << R"(
 local _G = _G -- Global environment
+local unpack = table.unpack or unpack
 
 local function run_vm(closure, args, varargs)
     local proto = closure.proto
@@ -262,7 +263,7 @@ local function run_vm(closure, args, varargs)
                    if open_upvalues[a] then open_upvalues[a].val = stack[a] end
                 end
             elseif type(func) == "function" then
-                 local results = { func(table.unpack(callArgs, 1, numArgs)) }
+                 local results = { func(unpack(callArgs, 1, numArgs)) }
                  local numResults = c - 1
                  if numResults > 0 then
                      for i = 1, numResults do
@@ -284,7 +285,7 @@ local function run_vm(closure, args, varargs)
                     for i = 1, numArgs do
                         metaArgs[i + 1] = callArgs[i]
                     end
-                    local res = mt.__call(table.unpack(metaArgs, 1, numArgs + 1))
+                    local res = mt.__call(unpack(metaArgs, 1, numArgs + 1))
                      if c - 1 > 0 then
                          stack[a] = res
                          if open_upvalues[a] then open_upvalues[a].val = stack[a] end
@@ -305,7 +306,7 @@ local function run_vm(closure, args, varargs)
                 for i = 0, n - 1 do
                     res[i + 1] = stack[a + i]
                 end
-                return table.unpack(res)
+                return unpack(res)
             end
         else
             error("Unknown opcode: " .. op)
