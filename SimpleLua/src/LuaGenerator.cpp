@@ -1,42 +1,42 @@
 #include "LuaGenerator.h"
 #include <vector>
 
-void LuaGenerator::generate(Prototype* proto, std::ostream& out) {
+void LuaGenerator::generate(Prototype* proto, std::ostream& out, const OpCodeStrategy& strategy) {
     // 1. Opcodes definitions
-    out << "local OP_MOVE = " << OP_MOVE << "\n";
-    out << "local OP_LOADK = " << OP_LOADK << "\n";
-    out << "local OP_ADD = " << OP_ADD << "\n";
-    out << "local OP_SUB = " << OP_SUB << "\n";
-    out << "local OP_MUL = " << OP_MUL << "\n";
-    out << "local OP_DIV = " << OP_DIV << "\n";
-    out << "local OP_IDIV = " << OP_IDIV << "\n";
-    out << "local OP_MOD = " << OP_MOD << "\n";
-    out << "local OP_CONCAT = " << OP_CONCAT << "\n";
-    out << "local OP_LEN = " << OP_LEN << "\n";
-    out << "local OP_NOT = " << OP_NOT << "\n";
-    out << "local OP_EQ = " << OP_EQ << "\n";
-    out << "local OP_LT = " << OP_LT << "\n";
-    out << "local OP_LE = " << OP_LE << "\n";
-    out << "local OP_JMP = " << OP_JMP << "\n";
-    out << "local OP_JMP_FALSE = " << OP_JMP_FALSE << "\n";
-    out << "local OP_GETGLOBAL = " << OP_GETGLOBAL << "\n";
-    out << "local OP_SETGLOBAL = " << OP_SETGLOBAL << "\n";
-    out << "local OP_NEWTABLE = " << OP_NEWTABLE << "\n";
-    out << "local OP_GETTABLE = " << OP_GETTABLE << "\n";
-    out << "local OP_SETTABLE = " << OP_SETTABLE << "\n";
-    out << "local OP_CALL = " << OP_CALL << "\n";
-    out << "local OP_CLOSURE = " << OP_CLOSURE << "\n";
-    out << "local OP_GETUPVAL = " << OP_GETUPVAL << "\n";
-    out << "local OP_SETUPVAL = " << OP_SETUPVAL << "\n";
-    out << "local OP_VARARG = " << OP_VARARG << "\n";
-    out << "local OP_FORPREP = " << OP_FORPREP << "\n";
-    out << "local OP_FORLOOP = " << OP_FORLOOP << "\n";
-    out << "local OP_TFORCALL = " << OP_TFORCALL << "\n";
-    out << "local OP_TFORLOOP = " << OP_TFORLOOP << "\n";
-    out << "local OP_RETURN = " << OP_RETURN << "\n\n";
+    out << "local OP_MOVE = " << strategy.get(OP_MOVE) << "\n";
+    out << "local OP_LOADK = " << strategy.get(OP_LOADK) << "\n";
+    out << "local OP_ADD = " << strategy.get(OP_ADD) << "\n";
+    out << "local OP_SUB = " << strategy.get(OP_SUB) << "\n";
+    out << "local OP_MUL = " << strategy.get(OP_MUL) << "\n";
+    out << "local OP_DIV = " << strategy.get(OP_DIV) << "\n";
+    out << "local OP_IDIV = " << strategy.get(OP_IDIV) << "\n";
+    out << "local OP_MOD = " << strategy.get(OP_MOD) << "\n";
+    out << "local OP_CONCAT = " << strategy.get(OP_CONCAT) << "\n";
+    out << "local OP_LEN = " << strategy.get(OP_LEN) << "\n";
+    out << "local OP_NOT = " << strategy.get(OP_NOT) << "\n";
+    out << "local OP_EQ = " << strategy.get(OP_EQ) << "\n";
+    out << "local OP_LT = " << strategy.get(OP_LT) << "\n";
+    out << "local OP_LE = " << strategy.get(OP_LE) << "\n";
+    out << "local OP_JMP = " << strategy.get(OP_JMP) << "\n";
+    out << "local OP_JMP_FALSE = " << strategy.get(OP_JMP_FALSE) << "\n";
+    out << "local OP_GETGLOBAL = " << strategy.get(OP_GETGLOBAL) << "\n";
+    out << "local OP_SETGLOBAL = " << strategy.get(OP_SETGLOBAL) << "\n";
+    out << "local OP_NEWTABLE = " << strategy.get(OP_NEWTABLE) << "\n";
+    out << "local OP_GETTABLE = " << strategy.get(OP_GETTABLE) << "\n";
+    out << "local OP_SETTABLE = " << strategy.get(OP_SETTABLE) << "\n";
+    out << "local OP_CALL = " << strategy.get(OP_CALL) << "\n";
+    out << "local OP_CLOSURE = " << strategy.get(OP_CLOSURE) << "\n";
+    out << "local OP_GETUPVAL = " << strategy.get(OP_GETUPVAL) << "\n";
+    out << "local OP_SETUPVAL = " << strategy.get(OP_SETUPVAL) << "\n";
+    out << "local OP_VARARG = " << strategy.get(OP_VARARG) << "\n";
+    out << "local OP_FORPREP = " << strategy.get(OP_FORPREP) << "\n";
+    out << "local OP_FORLOOP = " << strategy.get(OP_FORLOOP) << "\n";
+    out << "local OP_TFORCALL = " << strategy.get(OP_TFORCALL) << "\n";
+    out << "local OP_TFORLOOP = " << strategy.get(OP_TFORLOOP) << "\n";
+    out << "local OP_RETURN = " << strategy.get(OP_RETURN) << "\n\n";
 
     out << "local main_proto = ";
-    generateProto(proto, out, 0);
+    generateProto(proto, out, 0, strategy);
     out << "\n";
 
     // 4. VM Logic
@@ -369,7 +369,7 @@ run_vm({ proto = main_proto, upvalues = {} }, {})
 )";
 }
 
-void LuaGenerator::generateProto(Prototype* proto, std::ostream& out, int index) {
+void LuaGenerator::generateProto(Prototype* proto, std::ostream& out, int index, const OpCodeStrategy& strategy) {
     (void)index;
     out << "{\n";
 
@@ -397,7 +397,7 @@ void LuaGenerator::generateProto(Prototype* proto, std::ostream& out, int index)
     out << "  code = {\n";
     for (size_t i = 0; i < proto->instructions.size(); ++i) {
         const Instruction& inst = proto->instructions[i];
-        out << "    {" << inst.op << ", " << inst.a << ", " << inst.b << ", " << inst.c << "},\n";
+        out << "    {" << strategy.get(inst.op) << ", " << inst.a << ", " << inst.b << ", " << inst.c << "},\n";
     }
     out << "  },\n";
 
@@ -405,7 +405,7 @@ void LuaGenerator::generateProto(Prototype* proto, std::ostream& out, int index)
     out << "  protos = {\n";
     for (size_t i = 0; i < proto->protos.size(); ++i) {
          out << "    [" << i << "] = ";
-         generateProto(proto->protos[i], out, i);
+         generateProto(proto->protos[i], out, i, strategy);
          out << ",\n";
     }
     out << "  },\n";

@@ -2,17 +2,27 @@
 #include <fstream>
 #include <string>
 #include <sstream>
+#include <memory>
+#include <cstring>
 #include "Compiler.h"
 #include "LuaGenerator.h"
+#include "VMP/OpCodeStrategy.h"
 
 int main(int argc, char* argv[]) {
     if (argc < 3) {
-        std::cerr << "Usage: " << argv[0] << " <input_file> <output_file>\n";
+        std::cerr << "Usage: " << argv[0] << " <input_file> <output_file> [-vmp]\n";
         return 1;
     }
 
     std::string inputPath = argv[1];
     std::string outputPath = argv[2];
+    bool useVMP = false;
+
+    for (int i = 3; i < argc; ++i) {
+        if (std::strcmp(argv[i], "-vmp") == 0) {
+            useVMP = true;
+        }
+    }
 
     std::ifstream inFile(inputPath);
     if (!inFile) {
@@ -42,7 +52,16 @@ int main(int argc, char* argv[]) {
             std::cerr << "Error: Could not open output file for writing: " << outputPath << "\n";
             return 1;
         }
-        LuaGenerator::generate(proto, outFile);
+
+        std::unique_ptr<OpCodeStrategy> strategy;
+        if (useVMP) {
+            strategy = std::make_unique<RandomizedStrategy>();
+            std::cout << "Using VMP (OpCode Randomization).\n";
+        } else {
+            strategy = std::make_unique<DefaultStrategy>();
+        }
+
+        LuaGenerator::generate(proto, outFile, *strategy);
         outFile.close();
 
         std::cout << "Generated " << outputPath << "\n";
