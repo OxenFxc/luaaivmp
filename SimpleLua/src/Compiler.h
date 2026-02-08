@@ -100,6 +100,7 @@ private:
     int emitJump(OpCode op, int condReg = 0);
     void patchJump(int instructionIndex);
     int allocateRegister();
+    int allocateBlock(int size);
 };
 
 #endif

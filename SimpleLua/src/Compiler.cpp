@@ -190,10 +190,6 @@ void Compiler::parseStatementImpl() {
                     emit(Instruction(OP_GETTABLE, resReg, valReg, keyReg));
                     valReg = resReg;
                 } else if (match(TokenType::LPAREN)) {
-                    int base = allocateRegister();
-                    emit(Instruction(OP_MOVE, base, valReg, 0));
-                    valReg = base;
-
                     std::vector<int> args;
                     if (!match(TokenType::RPAREN)) {
                         do {
@@ -201,6 +197,9 @@ void Compiler::parseStatementImpl() {
                         } while (match(TokenType::COMMA));
                         consume(TokenType::RPAREN, "Expect ')' after arguments");
                     }
+
+                    int base = allocateBlock(args.size() + 1);
+                    emit(Instruction(OP_MOVE, base, valReg, 0));
 
                     for (size_t i = 0; i < args.size(); ++i) {
                         emit(Instruction(OP_MOVE, base + 1 + i, args[i], 0));
@@ -230,7 +229,9 @@ void Compiler::parseStatementImpl() {
                         consume(TokenType::RPAREN, "Expect ')'");
                     }
 
-                    int base = funcReg;
+                    int base = allocateBlock(args.size() + 1);
+                    emit(Instruction(OP_MOVE, base, funcReg, 0));
+
                     for (size_t i = 0; i < args.size(); ++i) {
                         emit(Instruction(OP_MOVE, base + 1 + i, args[i], 0));
                     }
@@ -489,10 +490,10 @@ void Compiler::parseForStatement() {
 
         consume(TokenType::DO, "Expect 'do' after for parameters");
 
-        int base = allocateRegister(); // index
-        allocateRegister(); // limit
-        allocateRegister(); // step
-        int varReg = allocateRegister(); // external variable
+        // index, limit, step, and external variable must be contiguous
+        // OP_FORLOOP writes loop index to stack[base+3]
+        int base = allocateBlock(4);
+        int varReg = base + 3;
 
         // Lock registers for loop duration
         current->locals["(base " + std::to_string(base) + ")"] = base;
@@ -559,9 +560,9 @@ void Compiler::parseForStatement() {
         }
         consume(TokenType::IN, "Expect 'in' after variable list");
 
-        int base = allocateRegister(); // iterator
-        allocateRegister(); // state
-        allocateRegister(); // control
+        // iterator, state, control, and loop variables must be contiguous
+        // OP_TFORCALL writes results to stack[base+3...]
+        int base = allocateBlock(3 + (int)varNames.size());
 
         // Parse explist (expecting 3 values: iterator, state, control)
         int firstExpr = parseExpression();
@@ -578,6 +579,14 @@ void Compiler::parseForStatement() {
                     emit(Instruction(OP_MOVE, base + 2, firstExpr + 2, 0));
                     patchedCall = true;
                 }
+            }
+            if (!patchedCall) {
+                 // std::cerr << "WARNING: Could not patch call in generic for" << std::endl;
+                 int nilIdx = addConstant(Value(Nil{}));
+                 int nilReg = allocateRegister();
+                 emit(Instruction(OP_LOADK, nilReg, nilIdx));
+                 emit(Instruction(OP_MOVE, base + 1, nilReg, 0));
+                 emit(Instruction(OP_MOVE, base + 2, nilReg, 0));
             }
         } else {
             int second = parseExpression();
@@ -599,17 +608,28 @@ void Compiler::parseForStatement() {
              // We'll skip for now to keep it simple.
         }
 
-        // Cleanup registers used by explist so loop variables start immediately after control variable
-        for (int r = base + 3; r < 256; ++r) {
-            current->allocatedRegs[r] = false;
+        // No need to cleanup registers, we allocated block upfront.
+        // But we should ensure temporary registers used by explist are freed?
+        // allocateBlock marked them allocated.
+        // Wait, explist used registers *after* the block.
+        // Those temps are still allocated?
+        // parseExpression doesn't free.
+        // But we don't need to free them explicitly, they will be freed at end of statement/block?
+        // But we are inside loop setup.
+        // If we don't free them, they leak into loop body?
+        // Yes.
+        // But `allocatedRegs` is bitset.
+        // We can clear registers > base + 3 + nVars.
+        for (int r = base + 3 + (int)varNames.size(); r < 256; ++r) {
+             current->allocatedRegs[r] = false;
         }
 
         consume(TokenType::DO, "Expect 'do'");
 
-        // Allocate registers for loop variables
+        // Registers for loop variables are already allocated at base+3...
         std::vector<int> loopVars;
         for (size_t i = 0; i < varNames.size(); ++i) {
-            int r = allocateRegister();
+            int r = base + 3 + i;
             loopVars.push_back(r);
             current->locals[varNames[i]] = r;
         }
@@ -937,10 +957,6 @@ int Compiler::parseAtom() {
                  emit(Instruction(OP_GETTABLE, resReg, valReg, keyReg));
                  valReg = resReg;
             } else if (match(TokenType::LPAREN)) {
-                int base = allocateRegister();
-                emit(Instruction(OP_MOVE, base, valReg, 0));
-                valReg = base;
-
                 std::vector<int> args;
                 if (!match(TokenType::RPAREN)) {
                     do {
@@ -949,10 +965,19 @@ int Compiler::parseAtom() {
                     consume(TokenType::RPAREN, "Expect ')'");
                 }
 
-                for(size_t i=0; i<args.size(); ++i) {
+                int base = allocateBlock(args.size() + 1);
+                emit(Instruction(OP_MOVE, base, valReg, 0));
+                valReg = base;
+
+                for (size_t i = 0; i < args.size(); ++i) {
                      emit(Instruction(OP_MOVE, base + 1 + i, args[i], 0));
                 }
                 emit(Instruction(OP_CALL, base, args.size() + 1, 2));
+
+                // Free registers base+1...base+args.size()
+                for (int r = base + 1; r < base + 1 + (int)args.size(); ++r) {
+                    current->allocatedRegs[r] = false;
+                }
             } else if (match(TokenType::COLON)) {
                 Token method = consume(TokenType::ID, "Expect method name");
                 int keyIdx = addConstant(method.value);
@@ -976,12 +1001,19 @@ int Compiler::parseAtom() {
                     consume(TokenType::RPAREN, "Expect ')'");
                 }
 
-                int base = funcReg;
-                for(size_t i=0; i<args.size(); ++i) {
+                int base = allocateBlock(args.size() + 1);
+                emit(Instruction(OP_MOVE, base, funcReg, 0));
+
+                for (size_t i = 0; i < args.size(); ++i) {
                      emit(Instruction(OP_MOVE, base + 1 + i, args[i], 0));
                 }
                 emit(Instruction(OP_CALL, base, args.size() + 1, 2));
-                valReg = funcReg;
+                valReg = base;
+
+                // Free registers base+1...
+                for (int r = base + 1; r < base + 1 + (int)args.size(); ++r) {
+                    current->allocatedRegs[r] = false;
+                }
             } else {
                 break;
             }
@@ -1121,4 +1153,23 @@ int Compiler::allocateRegister() {
         }
     }
     throw std::runtime_error("Stack overflow: too many registers used");
+}
+
+int Compiler::allocateBlock(int size) {
+    for (int i = 0; i <= 256 - size; ++i) {
+        bool free = true;
+        for (int j = 0; j < size; ++j) {
+            if (current->allocatedRegs[i + j]) {
+                free = false;
+                break;
+            }
+        }
+        if (free) {
+            for (int j = 0; j < size; ++j) {
+                current->allocatedRegs[i + j] = true;
+            }
+            return i;
+        }
+    }
+    throw std::runtime_error("Stack overflow: too many registers used (contiguous block)");
 }
