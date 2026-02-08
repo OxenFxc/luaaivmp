@@ -9,6 +9,11 @@
 #include <string>
 #include <bitset>
 
+struct Goto {
+    std::string labelName;
+    int instructionIndex;
+};
+
 struct UpvalueInfo {
     bool isLocal;
     int index;
@@ -26,6 +31,9 @@ struct Prototype {
 struct CompilerState {
     Prototype* proto;
     std::unordered_map<std::string, int> locals;
+    std::unordered_map<std::string, int> labels; // label name -> pc
+    std::vector<Goto> pendingGotos;
+
     int nextReg;
     std::bitset<256> allocatedRegs;
     CompilerState* enclosing; // Parent scope
@@ -56,6 +64,8 @@ private:
     void parseIfStatement();
     void parseWhileStatement();
     void parseForStatement();
+    void parseGotoStatement();
+    void parseLabelStatement();
     void parseFunctionStatement();
     int parseFunctionExpression();
     void parseReturnStatement();
@@ -81,6 +91,7 @@ private:
 
     std::vector<std::string> snapshotLocals();
     void restoreLocals(const std::vector<std::string>& snapshot);
+    void resolveGotos();
 
     int addConstant(Value v);
     void emit(Instruction inst);

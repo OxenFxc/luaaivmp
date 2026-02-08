@@ -9,6 +9,7 @@ void LuaGenerator::generate(Prototype* proto, std::ostream& out) {
     out << "local OP_SUB = " << OP_SUB << "\n";
     out << "local OP_MUL = " << OP_MUL << "\n";
     out << "local OP_DIV = " << OP_DIV << "\n";
+    out << "local OP_IDIV = " << OP_IDIV << "\n";
     out << "local OP_MOD = " << OP_MOD << "\n";
     out << "local OP_CONCAT = " << OP_CONCAT << "\n";
     out << "local OP_LEN = " << OP_LEN << "\n";
@@ -30,7 +31,8 @@ void LuaGenerator::generate(Prototype* proto, std::ostream& out) {
     out << "local OP_VARARG = " << OP_VARARG << "\n";
     out << "local OP_FORPREP = " << OP_FORPREP << "\n";
     out << "local OP_FORLOOP = " << OP_FORLOOP << "\n";
-    out << "local OP_PRINT = " << OP_PRINT << "\n";
+    out << "local OP_TFORCALL = " << OP_TFORCALL << "\n";
+    out << "local OP_TFORLOOP = " << OP_TFORLOOP << "\n";
     out << "local OP_RETURN = " << OP_RETURN << "\n\n";
 
     out << "local main_proto = ";
@@ -91,6 +93,9 @@ local function run_vm(closure, args, varargs)
             if open_upvalues[a] then open_upvalues[a].val = stack[a] end
         elseif op == OP_DIV then
             stack[a] = stack[b] / stack[c]
+            if open_upvalues[a] then open_upvalues[a].val = stack[a] end
+        elseif op == OP_IDIV then
+            stack[a] = math.floor(stack[b] / stack[c])
             if open_upvalues[a] then open_upvalues[a].val = stack[a] end
         elseif op == OP_MOD then
             stack[a] = stack[b] % stack[c]
@@ -165,11 +170,38 @@ local function run_vm(closure, args, varargs)
                 pc = pc + b
                 stack[a+3] = idx
             end
+        elseif op == OP_TFORCALL then
+            local func = stack[a]
+            local state = stack[a+1]
+            local ctl = stack[a+2]
+            local n = c
+            local results
+            if type(func) == "function" then
+                 results = { func(state, ctl) }
+            elseif type(func) == "table" and func.type == "closure" then
+                 results = run_vm(func, {state, ctl})
+                 -- If results is not a table, wrap it?
+                 if type(results) ~= "table" then results = { results } end
+            else
+                 error("Attempt to call non-function in TFORCALL")
+            end
+
+            for i = 1, n do
+                stack[a+2+i] = results[i]
+            end
+        elseif op == OP_TFORLOOP then
+            local val = stack[a+1]
+            if val ~= nil then
+                stack[a] = val
+                pc = pc + b
+            end
         elseif op == OP_CLOSURE then
             local p = protos[b]
             -- Check if upvalues exist (might be nil if no upvalues)
             local nups = 0
-            if p.upvalues then nups = #p.upvalues + 1 end
+            if p.upvalues then
+                 while p.upvalues[nups] do nups = nups + 1 end
+            end
 
             local new_ups = {}
             if p.upvalues then
@@ -221,10 +253,12 @@ local function run_vm(closure, args, varargs)
                 end
                 vArgs.n = vCount
 
-                local results = run_vm(func, fArgs, vArgs)
+                local results = { run_vm(func, fArgs, vArgs) }
                 local numResults = c - 1
                 if numResults > 0 then
-                   stack[a] = results
+                   for i = 1, numResults do
+                       stack[a + i - 1] = results[i]
+                   end
                    if open_upvalues[a] then open_upvalues[a].val = stack[a] end
                 end
             elseif type(func) == "function" then
@@ -260,17 +294,19 @@ local function run_vm(closure, args, varargs)
                 end
             end
 
-        elseif op == OP_PRINT then
-            print(stack[a])
         elseif op == OP_RETURN then
-            -- Close upvalues?
-            -- Since we used tables {val=...} for upvalues, and passed them by reference to children,
-            -- we don't need to do explicit closing logic unless we want to detach them from stack.
-            -- But stack is gone anyway.
-            if b == 2 then
+            local n = b - 1
+            if n <= 0 then
+                return
+            elseif n == 1 then
                 return stack[a]
+            else
+                local res = {}
+                for i = 0, n - 1 do
+                    res[i + 1] = stack[a + i]
+                end
+                return table.unpack(res)
             end
-            return
         else
             error("Unknown opcode: " .. op)
         end

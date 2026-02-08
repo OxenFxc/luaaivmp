@@ -7,7 +7,6 @@
 
 enum class TokenType {
     LOCAL,
-    PRINT,
     ID,
     NUMBER,
     STRING,
@@ -22,7 +21,7 @@ enum class TokenType {
 
     // Keywords
     IF, THEN, ELSE, ELSEIF, END, WHILE, DO, FUNCTION, RETURN, FOR, IN,
-    AND, OR, NOT, NIL, TRUE, FALSE,
+    AND, OR, NOT, NIL, TRUE, FALSE, GOTO, BREAK,
 
     // Symbols
     LBRACE,     // {
@@ -32,10 +31,12 @@ enum class TokenType {
     COMMA,      // ,
     DOT,        // .
     COLON,      // :
+    DOUBLE_COLON, // ::
     DOTDOT,     // ..
     DOTDOTDOT,  // ...
     HASH,       // #
     PERCENT,    // %
+    IDIV,       // //
 
     // Comparison
     EQ, // ==

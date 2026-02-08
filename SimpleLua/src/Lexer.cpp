@@ -79,7 +79,9 @@ Token Lexer::scanToken() {
         case '+': return {TokenType::PLUS, "+", line};
         case '-': return {TokenType::MINUS, "-", line};
         case '*': return {TokenType::MUL, "*", line};
-        case '/': return {TokenType::DIV, "/", line};
+        case '/':
+            if (match('/')) return {TokenType::IDIV, "//", line};
+            return {TokenType::DIV, "/", line};
         case '(': return {TokenType::LPAREN, "(", line};
         case ')': return {TokenType::RPAREN, ")", line};
         case '{': return {TokenType::LBRACE, "{", line};
@@ -93,7 +95,9 @@ Token Lexer::scanToken() {
                 return {TokenType::DOTDOT, "..", line};
             }
             return {TokenType::DOT, ".", line};
-        case ':': return {TokenType::COLON, ":", line};
+        case ':':
+            if (match(':')) return {TokenType::DOUBLE_COLON, "::", line};
+            return {TokenType::COLON, ":", line};
         case ';': return {TokenType::SEMICOLON, ";", line};
         case '#': return {TokenType::HASH, "#", line};
         case '%': return {TokenType::PERCENT, "%", line};
@@ -109,7 +113,6 @@ Token Lexer::identifier() {
     }
 
     if (text == "local") return {TokenType::LOCAL, text, line};
-    if (text == "print") return {TokenType::PRINT, text, line};
     if (text == "if") return {TokenType::IF, text, line};
     if (text == "then") return {TokenType::THEN, text, line};
     if (text == "else") return {TokenType::ELSE, text, line};
@@ -127,6 +130,8 @@ Token Lexer::identifier() {
     if (text == "nil") return {TokenType::NIL, text, line};
     if (text == "true") return {TokenType::TRUE, text, line};
     if (text == "false") return {TokenType::FALSE, text, line};
+    if (text == "goto") return {TokenType::GOTO, text, line};
+    if (text == "break") return {TokenType::BREAK, text, line};
 
     return {TokenType::ID, text, line};
 }

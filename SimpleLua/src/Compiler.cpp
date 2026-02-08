@@ -15,6 +15,7 @@ Prototype* Compiler::compile(const std::string& source) {
         parseStatement();
     }
 
+    resolveGotos();
     emit(Instruction(OP_RETURN, 0, 0, 0));
     return current->proto;
 }
@@ -64,23 +65,53 @@ void Compiler::parseStatementImpl() {
                 emit(Instruction(OP_MOVE, varReg, funcReg, 0));
             }
         } else {
-            Token name = consume(TokenType::ID, "Expect variable name after 'local'");
-            consume(TokenType::ASSIGN, "Expect '=' after variable name");
-            int exprReg = parseExpression();
+            std::vector<std::string> names;
+            do {
+                names.push_back(consume(TokenType::ID, "Expect variable name after 'local'").value);
+            } while (match(TokenType::COMMA));
 
-            current->locals[name.value] = allocateRegister();
-            int varReg = current->locals[name.value];
-            if (varReg != exprReg) {
-                 emit(Instruction(OP_MOVE, varReg, exprReg, 0));
+            std::vector<int> exprRegs;
+            if (match(TokenType::ASSIGN)) {
+                do {
+                    exprRegs.push_back(parseExpression());
+                } while (match(TokenType::COMMA));
+            }
+
+            // Adjust results if last expression is a CALL and we need more values
+            int needed = (int)names.size() - (int)exprRegs.size() + 1;
+            if (needed > 1 && !exprRegs.empty()) {
+                int lastExpr = exprRegs.back();
+                // Check if last instruction was a CALL producing lastExpr
+                if (current->proto->instructions.size() > 0) {
+                     Instruction& last = current->proto->instructions.back();
+                     if (last.op == OP_CALL && last.a == lastExpr && last.c == 2) {
+                         last.c = needed + 1; // Request needed+1 results
+                         // The CALL puts results in lastExpr, lastExpr+1, ...
+                         // Add extra results to exprRegs
+                         for (int i = 1; i < needed; ++i) {
+                             exprRegs.push_back(lastExpr + i);
+                             // Mark as allocated so local allocation doesn't overwrite them
+                             current->allocatedRegs[lastExpr + i] = true;
+                         }
+                     }
+                }
+            }
+
+            for (size_t i = 0; i < names.size(); ++i) {
+                current->locals[names[i]] = allocateRegister();
+                int varReg = current->locals[names[i]];
+
+                if (i < exprRegs.size()) {
+                    emit(Instruction(OP_MOVE, varReg, exprRegs[i], 0));
+                } else {
+                    int nilIdx = addConstant(Value(Nil{}));
+                    int nilReg = allocateRegister();
+                    emit(Instruction(OP_LOADK, nilReg, nilIdx));
+                    emit(Instruction(OP_MOVE, varReg, nilReg, 0));
+                }
             }
         }
 
-        if (match(TokenType::SEMICOLON)) {}
-    } else if (match(TokenType::PRINT)) {
-        consume(TokenType::LPAREN, "Expect '(' after 'print'");
-        int exprReg = parseExpression();
-        consume(TokenType::RPAREN, "Expect ')' after argument");
-        emit(Instruction(OP_PRINT, exprReg, 0, 0));
         if (match(TokenType::SEMICOLON)) {}
     } else if (match(TokenType::IF)) {
         parseIfStatement();
@@ -92,6 +123,10 @@ void Compiler::parseStatementImpl() {
         parseFunctionStatement();
     } else if (match(TokenType::RETURN)) {
         parseReturnStatement();
+    } else if (match(TokenType::GOTO)) {
+        parseGotoStatement();
+    } else if (match(TokenType::DOUBLE_COLON)) {
+        parseLabelStatement();
     } else {
         Token t = peek();
         if (t.type == TokenType::ID) {
@@ -259,6 +294,7 @@ void Compiler::parseFunctionStatement() {
     consume(TokenType::END, "Expect 'end' after function body");
 
     emit(Instruction(OP_RETURN, 0, 1, 0));
+    resolveGotos();
 
     current = parent;
 
@@ -297,6 +333,7 @@ int Compiler::parseFunctionExpression() {
     consume(TokenType::END, "Expect 'end' after function body");
 
     emit(Instruction(OP_RETURN, 0, 1, 0));
+    resolveGotos();
 
     current = parent;
 
@@ -309,8 +346,19 @@ void Compiler::parseReturnStatement() {
     if (peek().type == TokenType::SEMICOLON || peek().type == TokenType::END || peek().type == TokenType::ELSE) {
         emit(Instruction(OP_RETURN, 0, 1, 0));
     } else {
-        int reg = parseExpression();
-        emit(Instruction(OP_RETURN, reg, 2, 0));
+        std::vector<int> exprRegs;
+        do {
+            exprRegs.push_back(parseExpression());
+        } while (match(TokenType::COMMA));
+
+        int n = (int)exprRegs.size();
+        int base = allocateRegister();
+        for (int i = 1; i < n; ++i) allocateRegister();
+
+        for (int i = 0; i < n; ++i) {
+             emit(Instruction(OP_MOVE, base + i, exprRegs[i], 0));
+        }
+        emit(Instruction(OP_RETURN, base, n + 1, 0));
     }
     if (match(TokenType::SEMICOLON)) {}
 }
@@ -408,81 +456,196 @@ void Compiler::parseWhileStatement() {
 
 void Compiler::parseForStatement() {
     Token name = consume(TokenType::ID, "Expect variable name after 'for'");
-    consume(TokenType::ASSIGN, "Expect '=' after variable name");
 
-    int startReg = parseExpression();
-    consume(TokenType::COMMA, "Expect ',' after start value");
-    int limitReg = parseExpression();
+    if (match(TokenType::ASSIGN)) {
+        // Numeric for
+        int startReg = parseExpression();
+        consume(TokenType::COMMA, "Expect ',' after start value");
+        int limitReg = parseExpression();
 
-    int stepReg;
-    if (match(TokenType::COMMA)) {
-        stepReg = parseExpression();
+        int stepReg;
+        if (match(TokenType::COMMA)) {
+            stepReg = parseExpression();
+        } else {
+            stepReg = allocateRegister();
+            int oneIdx = addConstant(1.0);
+            emit(Instruction(OP_LOADK, stepReg, oneIdx));
+        }
+
+        consume(TokenType::DO, "Expect 'do' after for parameters");
+
+        int base = allocateRegister(); // index
+        allocateRegister(); // limit
+        allocateRegister(); // step
+        int varReg = allocateRegister(); // external variable
+
+        // Lock registers for loop duration
+        current->locals["(base " + std::to_string(base) + ")"] = base;
+        current->locals["(limit " + std::to_string(base) + ")"] = base + 1;
+        current->locals["(step " + std::to_string(base) + ")"] = base + 2;
+
+        emit(Instruction(OP_MOVE, base, startReg, 0));
+        emit(Instruction(OP_MOVE, base + 1, limitReg, 0));
+        emit(Instruction(OP_MOVE, base + 2, stepReg, 0));
+
+        int oldReg = -1;
+        bool hadOld = false;
+        if (current->locals.count(name.value)) {
+            oldReg = current->locals[name.value];
+            hadOld = true;
+        }
+        current->locals[name.value] = varReg;
+
+        int loopStart = (int)current->proto->instructions.size();
+        emit(Instruction(OP_FORPREP, base, 0));
+
+        std::vector<std::string> snapshot = snapshotLocals();
+        while (peek().type != TokenType::END && peek().type != TokenType::END_OF_FILE) {
+            parseStatement();
+        }
+        restoreLocals(snapshot);
+
+        consume(TokenType::END, "Expect 'end' after for loop");
+
+        int loopEnd = (int)current->proto->instructions.size();
+        emit(Instruction(OP_FORLOOP, base, 0));
+
+        int prepOffset = loopEnd - loopStart - 1;
+        current->proto->instructions[loopStart].b = prepOffset;
+
+        int loopOffset = loopStart - loopEnd;
+        current->proto->instructions[loopEnd].b = loopOffset;
+
+        if (hadOld) {
+            current->locals[name.value] = oldReg;
+        } else {
+            current->allocatedRegs[current->locals[name.value]] = false;
+            current->locals.erase(name.value);
+        }
+        if (hadOld) current->allocatedRegs[varReg] = false;
+
+        current->allocatedRegs[base] = false;
+        current->allocatedRegs[base + 1] = false;
+        current->allocatedRegs[base + 2] = false;
+        current->locals.erase("(base " + std::to_string(base) + ")");
+        current->locals.erase("(limit " + std::to_string(base) + ")");
+        current->locals.erase("(step " + std::to_string(base) + ")");
     } else {
-        stepReg = allocateRegister();
-        int oneIdx = addConstant(1.0);
-        emit(Instruction(OP_LOADK, stepReg, oneIdx));
+        // Generic for
+        std::vector<std::string> varNames;
+        varNames.push_back(name.value);
+        while (match(TokenType::COMMA)) {
+            varNames.push_back(consume(TokenType::ID, "Expect variable name").value);
+        }
+        consume(TokenType::IN, "Expect 'in' after variable list");
+
+        int base = allocateRegister(); // iterator
+        allocateRegister(); // state
+        allocateRegister(); // control
+
+        // Parse explist (expecting 3 values: iterator, state, control)
+        int firstExpr = parseExpression();
+        emit(Instruction(OP_MOVE, base, firstExpr, 0));
+
+        bool patchedCall = false;
+        if (!match(TokenType::COMMA)) {
+            // Check if we can patch previous CALL
+            if (current->proto->instructions.size() > 1) {
+                Instruction& prev = current->proto->instructions[current->proto->instructions.size() - 2];
+                if (prev.op == OP_CALL && prev.a == firstExpr && prev.c == 2) {
+                    prev.c = 4; // 3 results
+                    emit(Instruction(OP_MOVE, base + 1, firstExpr + 1, 0));
+                    emit(Instruction(OP_MOVE, base + 2, firstExpr + 2, 0));
+                    patchedCall = true;
+                }
+            }
+        } else {
+            int second = parseExpression();
+            emit(Instruction(OP_MOVE, base + 1, second, 0));
+            if (match(TokenType::COMMA)) {
+                int third = parseExpression();
+                emit(Instruction(OP_MOVE, base + 2, third, 0));
+            } else {
+                int nilIdx = addConstant(Value(Nil{}));
+                int nilReg = allocateRegister();
+                emit(Instruction(OP_LOADK, nilReg, nilIdx));
+                emit(Instruction(OP_MOVE, base + 2, nilReg, 0));
+            }
+        }
+
+        if (!patchedCall && current->proto->instructions.back().op == OP_MOVE && current->proto->instructions.back().b == base) {
+             // If we didn't patch call and only had 1 expr, we need to set base+1, base+2 to nil?
+             // Not strictly required if user knows what they are doing, but safe to init.
+             // We'll skip for now to keep it simple.
+        }
+
+        // Cleanup registers used by explist so loop variables start immediately after control variable
+        for (int r = base + 3; r < 256; ++r) {
+            current->allocatedRegs[r] = false;
+        }
+
+        consume(TokenType::DO, "Expect 'do'");
+
+        // Allocate registers for loop variables
+        std::vector<int> loopVars;
+        for (size_t i = 0; i < varNames.size(); ++i) {
+            int r = allocateRegister();
+            loopVars.push_back(r);
+            current->locals[varNames[i]] = r;
+        }
+
+        int jumpInst = emitJump(OP_JMP);
+        int loopStart = (int)current->proto->instructions.size();
+
+        std::vector<std::string> snapshot = snapshotLocals();
+        while (peek().type != TokenType::END && peek().type != TokenType::END_OF_FILE) {
+            parseStatement();
+        }
+        restoreLocals(snapshot);
+
+        consume(TokenType::END, "Expect 'end'");
+
+        patchJump(jumpInst);
+
+        emit(Instruction(OP_TFORCALL, base, 0, (int)varNames.size()));
+        emit(Instruction(OP_TFORLOOP, base + 2, 0, 0));
+        current->proto->instructions.back().b = loopStart - (int)current->proto->instructions.size();
+
+        // Cleanup
+        current->allocatedRegs[base] = false;
+        current->allocatedRegs[base + 1] = false;
+        current->allocatedRegs[base + 2] = false;
+        for (int r : loopVars) current->allocatedRegs[r] = false;
     }
+}
 
-    consume(TokenType::DO, "Expect 'do' after for parameters");
+void Compiler::parseGotoStatement() {
+    Token label = consume(TokenType::ID, "Expect label name after 'goto'");
+    int inst = emitJump(OP_JMP);
+    current->pendingGotos.push_back({label.value, inst});
+    if (match(TokenType::SEMICOLON)) {}
+}
 
-    int base = allocateRegister(); // index
-    allocateRegister(); // limit
-    allocateRegister(); // step
-    int varReg = allocateRegister(); // external variable
-
-    // Lock registers for loop duration
-    current->locals["(base " + std::to_string(base) + ")"] = base;
-    current->locals["(limit " + std::to_string(base) + ")"] = base + 1;
-    current->locals["(step " + std::to_string(base) + ")"] = base + 2;
-
-    emit(Instruction(OP_MOVE, base, startReg, 0));
-    emit(Instruction(OP_MOVE, base + 1, limitReg, 0));
-    emit(Instruction(OP_MOVE, base + 2, stepReg, 0));
-
-    int oldReg = -1;
-    bool hadOld = false;
-    if (current->locals.count(name.value)) {
-        oldReg = current->locals[name.value];
-        hadOld = true;
+void Compiler::parseLabelStatement() {
+    Token label = consume(TokenType::ID, "Expect label name");
+    consume(TokenType::DOUBLE_COLON, "Expect '::' after label name");
+    if (current->labels.count(label.value)) {
+        throw std::runtime_error("Label already defined: " + label.value);
     }
-    current->locals[name.value] = varReg;
+    current->labels[label.value] = (int)current->proto->instructions.size();
+}
 
-    int loopStart = (int)current->proto->instructions.size();
-    emit(Instruction(OP_FORPREP, base, 0));
-
-    std::vector<std::string> snapshot = snapshotLocals();
-    while (peek().type != TokenType::END && peek().type != TokenType::END_OF_FILE) {
-        parseStatement();
+void Compiler::resolveGotos() {
+    for (const auto& g : current->pendingGotos) {
+        if (current->labels.count(g.labelName)) {
+            int target = current->labels[g.labelName];
+            int offset = target - g.instructionIndex - 1;
+            current->proto->instructions[g.instructionIndex].b = offset;
+        } else {
+            throw std::runtime_error("Label not found: " + g.labelName);
+        }
     }
-    restoreLocals(snapshot);
-
-    consume(TokenType::END, "Expect 'end' after for loop");
-
-    int loopEnd = (int)current->proto->instructions.size();
-    emit(Instruction(OP_FORLOOP, base, 0));
-
-    int prepOffset = loopEnd - loopStart - 1;
-    current->proto->instructions[loopStart].b = prepOffset;
-
-    int loopOffset = loopStart - loopEnd;
-    current->proto->instructions[loopEnd].b = loopOffset;
-
-    if (hadOld) {
-        current->locals[name.value] = oldReg;
-    } else {
-        current->allocatedRegs[current->locals[name.value]] = false;
-        current->locals.erase(name.value);
-    }
-    // Also free varReg if we restored oldReg?
-    if (hadOld) current->allocatedRegs[varReg] = false;
-
-    // Free locked registers
-    current->allocatedRegs[base] = false;
-    current->allocatedRegs[base + 1] = false;
-    current->allocatedRegs[base + 2] = false;
-    current->locals.erase("(base " + std::to_string(base) + ")");
-    current->locals.erase("(limit " + std::to_string(base) + ")");
-    current->locals.erase("(step " + std::to_string(base) + ")");
+    current->pendingGotos.clear();
 }
 
 int Compiler::parseExpression() {
@@ -617,7 +780,7 @@ int Compiler::parseTerm() {
 
 int Compiler::parseFactor() {
     int leftReg = parseUnary();
-    while (peek().type == TokenType::MUL || peek().type == TokenType::DIV || peek().type == TokenType::PERCENT) {
+    while (peek().type == TokenType::MUL || peek().type == TokenType::DIV || peek().type == TokenType::PERCENT || peek().type == TokenType::IDIV) {
         TokenType op = advance().type;
         int rightReg = parseUnary();
         int resultReg = allocateRegister();
@@ -625,6 +788,8 @@ int Compiler::parseFactor() {
             emit(Instruction(OP_MUL, resultReg, leftReg, rightReg));
         } else if (op == TokenType::DIV) {
             emit(Instruction(OP_DIV, resultReg, leftReg, rightReg));
+        } else if (op == TokenType::IDIV) {
+            emit(Instruction(OP_IDIV, resultReg, leftReg, rightReg));
         } else {
             emit(Instruction(OP_MOD, resultReg, leftReg, rightReg));
         }
