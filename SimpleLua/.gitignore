@@ -1,2 +1,4 @@
 *.o
 simple_lua
+output.lua
+output2.lua
