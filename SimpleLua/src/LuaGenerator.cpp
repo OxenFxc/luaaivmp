@@ -455,7 +455,7 @@ void LuaGenerator::generateProto(Prototype* proto, std::ostream& out, int index,
     out << "  protos = {\n";
     for (size_t i = 0; i < proto->protos.size(); ++i) {
          out << "    [" << i << "] = ";
-         generateProto(proto->protos[i], out, i, strategy, encrypt);
+         generateProto(proto->protos[i].get(), out, i, strategy, encrypt);
          out << ",\n";
     }
     out << "  },\n";

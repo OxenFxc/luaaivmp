@@ -4,10 +4,10 @@
 #include <random>
 
 RandomizedStrategy::RandomizedStrategy() {
-    std::vector<int> values;
     // OpCode is contiguous from 0 to OP_RETURN
+    opMap.resize(OP_RETURN + 1);
     for (int i = 0; i <= OP_RETURN; ++i) {
-        values.push_back(i);
+        opMap[i] = i;
     }
 
     // Shuffle
@@ -22,9 +22,8 @@ RandomizedStrategy::RandomizedStrategy() {
 }
 
 int RandomizedStrategy::get(OpCode op) const {
-    auto it = opMap.find(op);
-    if (it != opMap.end()) {
-        return it->second;
+    if (static_cast<size_t>(op) < opMap.size()) {
+        return opMap[static_cast<size_t>(op)];
     }
     return static_cast<int>(op);
 }

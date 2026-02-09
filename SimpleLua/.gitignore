@@ -6,3 +6,5 @@ src/Lexer.o
 src/Compiler.o
 src/LuaGenerator.o
 src/VMP/OpCodeStrategy.o
+test_value
+src/tests/*.o
