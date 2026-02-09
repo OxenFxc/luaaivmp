@@ -8,6 +8,7 @@
 #include <unordered_map>
 #include <string>
 #include <bitset>
+#include <memory>
 
 struct Goto {
     std::string labelName;
@@ -22,14 +23,14 @@ struct UpvalueInfo {
 struct Prototype {
     std::vector<Instruction> instructions;
     std::vector<Value> constants;
-    std::vector<Prototype*> protos; // Nested functions
+    std::vector<std::unique_ptr<Prototype>> protos; // Nested functions
     std::vector<UpvalueInfo> upvalues;
     int numParams;
 };
 
 // Represents the state of the function currently being compiled
 struct CompilerState {
-    Prototype* proto;
+    Prototype* proto; // Non-owning pointer
     std::unordered_map<std::string, int> locals;
     std::unordered_map<std::string, int> labels; // label name -> pc
     std::vector<Goto> pendingGotos;
@@ -39,7 +40,7 @@ struct CompilerState {
     std::bitset<256> allocatedRegs;
     CompilerState* enclosing; // Parent scope
 
-    CompilerState(CompilerState* parent) : proto(new Prototype()), nextReg(0), enclosing(parent) {
+    CompilerState(CompilerState* parent, Prototype* p) : proto(p), nextReg(0), enclosing(parent) {
         proto->numParams = 0;
     }
 };
@@ -47,7 +48,7 @@ struct CompilerState {
 class Compiler {
 public:
     Compiler();
-    Prototype* compile(const std::string& source); // Returns the main chunk prototype
+    std::unique_ptr<Prototype> compile(const std::string& source); // Returns the main chunk prototype
 
 private:
     std::vector<Token> tokens;

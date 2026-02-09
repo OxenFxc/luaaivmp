@@ -5,12 +5,14 @@
 
 Compiler::Compiler() : currentTokenIdx(0), current(nullptr) {}
 
-Prototype* Compiler::compile(const std::string& source) {
+std::unique_ptr<Prototype> Compiler::compile(const std::string& source) {
     Lexer lexer(source);
     tokens = lexer.tokenize();
     currentTokenIdx = 0;
 
-    current = new CompilerState(nullptr);
+    auto topProto = std::make_unique<Prototype>();
+    auto topState = std::make_unique<CompilerState>(nullptr, topProto.get());
+    current = topState.get();
 
     while (peek().type != TokenType::END_OF_FILE) {
         parseStatement();
@@ -18,7 +20,7 @@ Prototype* Compiler::compile(const std::string& source) {
 
     resolveGotos();
     emit(Instruction(OP_RETURN, 0, 0, 0));
-    return current->proto;
+    return topProto;
 }
 
 Token Compiler::peek() {
@@ -273,12 +275,14 @@ void Compiler::parseFunctionStatement() {
     Token name = consume(TokenType::ID, "Expect function name");
     consume(TokenType::LPAREN, "Expect '('");
 
-    CompilerState* fnState = new CompilerState(current);
-    current->proto->protos.push_back(fnState->proto);
+    auto fnProto = std::make_unique<Prototype>();
+    Prototype* fnProtoPtr = fnProto.get();
+    current->proto->protos.push_back(std::move(fnProto));
     int protoIdx = (int)current->proto->protos.size() - 1;
 
+    auto fnState = std::make_unique<CompilerState>(current, fnProtoPtr);
     CompilerState* parent = current;
-    current = fnState;
+    current = fnState.get();
 
     if (!match(TokenType::RPAREN)) {
         do {
@@ -319,12 +323,14 @@ void Compiler::parseFunctionStatement() {
 int Compiler::parseFunctionExpression() {
     consume(TokenType::LPAREN, "Expect '('");
 
-    CompilerState* fnState = new CompilerState(current);
-    current->proto->protos.push_back(fnState->proto);
+    auto fnProto = std::make_unique<Prototype>();
+    Prototype* fnProtoPtr = fnProto.get();
+    current->proto->protos.push_back(std::move(fnProto));
     int protoIdx = (int)current->proto->protos.size() - 1;
 
+    auto fnState = std::make_unique<CompilerState>(current, fnProtoPtr);
     CompilerState* parent = current;
-    current = fnState;
+    current = fnState.get();
 
     if (!match(TokenType::RPAREN)) {
         do {
