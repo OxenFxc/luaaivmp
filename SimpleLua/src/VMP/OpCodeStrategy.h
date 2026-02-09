@@ -2,7 +2,7 @@
 #define OPCODESTRATEGY_H
 
 #include "../OpCodes.h"
-#include <map>
+#include <vector>
 
 class OpCodeStrategy {
 public:
@@ -19,7 +19,7 @@ public:
 
 class RandomizedStrategy : public OpCodeStrategy {
 private:
-    std::map<OpCode, int> opMap;
+    std::vector<int> opMap;
 
 public:
     RandomizedStrategy();
