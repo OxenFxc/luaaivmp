@@ -45,7 +45,7 @@ int main(int argc, char* argv[]) {
 
     try {
         Compiler compiler;
-        Prototype* proto = compiler.compile(source);
+        std::unique_ptr<Prototype> proto = compiler.compile(source);
 
         std::cout << "Compiled successfully.\n";
         std::cout << "Main Instructions: " << proto->instructions.size() << "\n";
@@ -70,7 +70,7 @@ int main(int argc, char* argv[]) {
         if (pack) std::cout << "Packing enabled.\n";
         if (encrypt) std::cout << "Encryption enabled.\n";
 
-        LuaGenerator::generate(proto, outFile, *strategy, pack, encrypt);
+        LuaGenerator::generate(proto.get(), outFile, *strategy, pack, encrypt);
         outFile.close();
 
         std::cout << "Generated " << outputPath << "\n";
