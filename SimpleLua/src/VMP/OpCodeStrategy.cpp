@@ -2,7 +2,6 @@
 #include <vector>
 #include <algorithm>
 #include <random>
-#include <chrono>
 
 RandomizedStrategy::RandomizedStrategy() {
     std::vector<int> values;
@@ -12,8 +11,9 @@ RandomizedStrategy::RandomizedStrategy() {
     }
 
     // Shuffle
-    unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
-    std::shuffle(values.begin(), values.end(), std::default_random_engine(seed));
+    std::random_device rd;
+    std::mt19937 g(rd());
+    std::shuffle(values.begin(), values.end(), g);
 
     // Map
     for (int i = 0; i <= OP_RETURN; ++i) {
